@@ -45,7 +45,6 @@ axes[2].set_ylabel('Average Selling Price ($)')
 plt.tight_layout()
 plt.savefig('trend_analysis.png')
 print("Plots successfully generated and saved to trend_analysis.png")
-plt.show()
 
 y = df["sellingprice"]
 
@@ -140,13 +139,11 @@ plt.xlabel("Fitted Values")
 plt.ylabel("Residuals")
 plt.title("Residuals vs Fitted")
 plt.savefig('ResidualsVsFitted.png')
-plt.show()
 
 sm.qqplot(residuals, line='45')
 
 plt.title("Q-Q Plot")
 plt.savefig('qqPlot.png')
-plt.show()
 
 vif_data = pd.DataFrame({
     "Variable": X_train.columns,
@@ -157,3 +154,93 @@ vif_data = pd.DataFrame({
 print(
     vif_data.sort_values("VIF", ascending=False)
 )
+
+pdf = train_df.to_pandas()
+pdf["log_price"] = np.log(pdf["sellingprice"])
+
+plt.figure(figsize=(10, 6))
+
+sns.regplot(
+    data=pdf,
+    x="vehicle_age",
+    y="log_price",
+    scatter_kws={"alpha": 0.15},
+    line_kws={"linewidth": 3}
+)
+
+plt.title("Vehicle Age vs Selling Price")
+plt.xlabel("Vehicle Age (Years)")
+plt.ylabel("Selling Price ($)")
+plt.tight_layout()
+plt.savefig('ageVsSellingPrice.png')
+
+plt.figure(figsize=(10, 6))
+
+sns.regplot(
+    data=pdf,
+    x="odometer",
+    y="log_price",
+    scatter_kws={"alpha": 0.15},
+    line_kws={"linewidth": 3}
+)
+
+plt.title("Odometer vs Selling Price")
+plt.xlabel("Odometer Reading")
+plt.ylabel("Selling Price ($)")
+plt.tight_layout()
+plt.savefig('OdometerVsSellingPrice.png')
+
+# Construct confidence interval data frame
+df_01 = pl.DataFrame({
+    'term': fit_log.conf_int().index.tolist(),
+    'coef': fit_log.params.tolist(),
+    'conf_low': fit_log.conf_int().loc[:, 0].tolist(),
+    'conf_high': fit_log.conf_int().loc[:, 1].tolist()
+})
+
+# Selecting just slopes
+df_02 = df_01.filter(pl.col('term') != 'const')
+df_03 = df_02.filter(
+    pl.col('term').str.contains('model'),
+    ~pl.col('term').str.contains('Other')
+)
+
+# Plotting the confidence interval
+df = df_03
+plt.figure(figsize=(16, 9))
+plt.errorbar(df['coef'], df['term'],
+    xerr=[df['coef'] - df['conf_low'], df['conf_high'] - df['coef']], 
+    fmt='o', 
+    capsize=5, 
+    label='Estimates')
+plt.axvline(0, color='red', linestyle='--', label='y=0')
+plt.savefig('KnownModelsEffects.png')
+
+df_04 = df_02.filter(
+    pl.col('term').str.contains('model'),
+    pl.col('term').str.contains('Other')
+)
+
+# Plotting the confidence interval
+df = df_04
+plt.figure(figsize=(18, 8))
+plt.errorbar(df['coef'], df['term'],
+    xerr=[df['coef'] - df['conf_low'], df['conf_high'] - df['coef']], 
+    fmt='o', 
+    capsize=5, 
+    label='Estimates')
+plt.axvline(0, color='red', linestyle='--', label='y=0')
+plt.savefig('OtherModelEffects.png')
+
+df_03 = df_02.filter(~pl.col('term').str.contains('model'))
+
+# Plotting the confidence interval
+df = df_03
+plt.figure(figsize=(8, 3))
+plt.errorbar(df['coef'], df['term'],
+    xerr=[df['coef'] - df['conf_low'], df['conf_high'] - df['coef']], 
+    fmt='o', 
+    capsize=5, 
+    label='Estimates')
+plt.axvline(0, color='red', linestyle='--', label='y=0')
+plt.savefig('ParamsEffectLimited.png')
