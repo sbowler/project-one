@@ -11,6 +11,10 @@ raw_data = pl.read_csv('../../data/kaggle_car_prices.csv')
 
 df = cleanup_data(raw_data)
 
+df = df.with_columns(
+    (pl.col("odometer") / 10000).alias("odometer_10k")
+)
+
 # Setup a 1x3 grid for the 3 plots
 fig, axes = plt.subplots(1, 3, figsize=(18, 6))
 fig.suptitle('Automobile Sales Trend Analysis', fontsize=16)
@@ -50,7 +54,7 @@ y = df["sellingprice"]
 
 features = [
     "vehicle_age",
-    "odometer",
+    "odometer_10k",
     "condition",
     # "mmr", # We need to remove mmr as it's already an estimate for the price of the vehicle
     # "make", # make is captured in model since a model like z3 is only for BMW
@@ -170,7 +174,7 @@ sns.regplot(
 
 plt.title("Vehicle Age vs Selling Price")
 plt.xlabel("Vehicle Age (Years)")
-plt.ylabel("Selling Price ($)")
+plt.ylabel("Selling Price (log $)")
 plt.tight_layout()
 plt.savefig('ageVsSellingPrice.png')
 
@@ -178,15 +182,15 @@ plt.figure(figsize=(10, 6))
 
 sns.regplot(
     data=pdf,
-    x="odometer",
+    x="odometer_10k",
     y="log_price",
     scatter_kws={"alpha": 0.15},
     line_kws={"linewidth": 3}
 )
 
-plt.title("Odometer vs Selling Price")
-plt.xlabel("Odometer Reading")
-plt.ylabel("Selling Price ($)")
+plt.title("odometer (10k) vs Selling Price")
+plt.xlabel("odometer (10k) Reading")
+plt.ylabel("Selling Price (log $)")
 plt.tight_layout()
 plt.savefig('OdometerVsSellingPrice.png')
 
@@ -236,7 +240,7 @@ df_03 = df_02.filter(~pl.col('term').str.contains('model'))
 
 # Plotting the confidence interval
 df = df_03
-plt.figure(figsize=(8, 3))
+plt.figure(figsize=(9, 3))
 plt.errorbar(df['coef'], df['term'],
     xerr=[df['coef'] - df['conf_low'], df['conf_high'] - df['coef']], 
     fmt='o', 

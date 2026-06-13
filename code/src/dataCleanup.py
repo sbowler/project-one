@@ -140,16 +140,16 @@ def cleanup_data(data):
   df = df.filter(pl.col('odometer') < 250000)
 
   # Potential states for project 
-  # │ in    ┆ 3933  │
-  # │ ne    ┆ 3914  │
-  # │ sc    ┆ 3882  │
-  # │ pr    ┆ 2445  │
-  # │ la    ┆ 2029  │
-  # │ ut    ┆ 1766  │
-  # │ ms    ┆ 1730  │
-  # │ hi    ┆ 1209  │
-  # │ or    ┆ 1049  │
-  # │ nm    ┆ 163   │
+  # │ ny    ┆ 4730  │
+  # │ in    ┆ 3869  │
+  # │ sc    ┆ 3728  │
+  # │ ne    ┆ 3664  │
+  # │ pr    ┆ 2423  │
+  # │ la    ┆ 1735  │
+  # │ ms    ┆ 1715  │
+  # │ ut    ┆ 1700  │
+  # │ hi    ┆ 1205  │
+  # │ or    ┆ 1044  │
 
   # Debug unique values, optionally filter by something
   # print(value_counts(df, "make", state="ut"))
