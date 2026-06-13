@@ -137,6 +137,8 @@ def cleanup_data(data):
   # Filter out invalid ages
   df = df.filter(pl.col('vehicle_age') >= 0)
 
+  df = df.filter(pl.col('odometer') < 250000)
+
   # Potential states for project 
   # │ in    ┆ 3933  │
   # │ ne    ┆ 3914  │
