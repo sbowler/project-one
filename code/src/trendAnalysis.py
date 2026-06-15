@@ -4,6 +4,8 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import numpy as np
 import statsmodels.api as sm
+import os
+import pickle
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 from dataCleanup import cleanup_data
 
@@ -59,13 +61,15 @@ features = [
     # "mmr", # We need to remove mmr as it's already an estimate for the price of the vehicle
     # "make", # make is captured in model since a model like z3 is only for BMW
     "model",
+    "state",  # Added state to predict price variations by location
     # "body", # Body tends to be captured by the model as well
     # "transmission", # insignificant
     # "color", # color is not statistically significant and mostly just added noise
 ]
 
-train_df = df.filter(pl.col("state") == "ut")
-test_df  = df.filter(pl.col("state") == "ms")
+# Train on a random sample of the entire dataset to capture all states
+train_df = df.sample(n=100000, seed=42)
+test_df = df.filter(~pl.col("vin").is_in(train_df["vin"])).sample(n=20000, seed=42)
 
 train_pd = train_df.to_pandas()
 test_pd = test_df.to_pandas()
@@ -149,15 +153,15 @@ sm.qqplot(residuals, line='45')
 plt.title("Q-Q Plot")
 plt.savefig('qqPlot.png')
 
-vif_data = pd.DataFrame({
-    "Variable": X_train.columns,
-    "VIF": [variance_inflation_factor(X_train.values, i)
-            for i in range(X_train.shape[1])]
-})
-
-print(
-    vif_data.sort_values("VIF", ascending=False)
-)
+# vif_data = pd.DataFrame({
+#     "Variable": X_train.columns,
+#     "VIF": [variance_inflation_factor(X_train.values, i)
+#             for i in range(X_train.shape[1])]
+# })
+# 
+# print(
+#     vif_data.sort_values("VIF", ascending=False)
+# )
 
 pdf = train_df.to_pandas()
 pdf["log_price"] = np.log(pdf["sellingprice"])
@@ -248,3 +252,26 @@ plt.errorbar(df['coef'], df['term'],
     label='Estimates')
 plt.axvline(0, color='red', linestyle='--', label='y=0')
 plt.savefig('ParamsEffectLimited.png')
+
+# --- Save Model and Metadata ---
+
+output_dir = '../../output'
+os.makedirs(output_dir, exist_ok=True)
+
+# Save the trained statsmodels Results object
+model_path = os.path.join(output_dir, 'car_price_model.pkl')
+fit_log.save(model_path)
+print(f"Trained model saved to: {model_path}")
+
+# Save the metadata required for preprocessing and alignment
+metadata_path = os.path.join(output_dir, 'model_metadata.pkl')
+metadata = {
+    'common_models': common_models,
+    'train_columns': X_train.columns.tolist(),
+    'features': features,
+    'residual_variance': fit_log.scale  # Save residual variance (scale) for expectation correction
+}
+
+with open(metadata_path, 'wb') as f:
+    pickle.dump(metadata, f)
+print(f"Model metadata saved to: {metadata_path}")
