@@ -71,8 +71,8 @@ train_df = df.filter(pl.col("state") == "ut")
 test_df  = df.filter(pl.col("state") == "ms")
 
 # Train on a random sample of the entire dataset to capture all states
-# train_df = df.sample(n=100000, seed=42)
-# test_df = df.filter(~pl.col("vin").is_in(train_df["vin"])).sample(n=20000, seed=42)
+# train_df = df.sample(n=50000, seed=42)
+# test_df = df.filter(~pl.col("vin").is_in(train_df["vin"])).sample(n=5000, seed=42)
 
 train_pd = train_df.to_pandas()
 test_pd = test_df.to_pandas()
