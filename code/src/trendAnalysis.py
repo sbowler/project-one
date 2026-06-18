@@ -156,15 +156,15 @@ sm.qqplot(residuals, line='45')
 plt.title("Q-Q Plot")
 plt.savefig('qqPlot.png')
 
-# vif_data = pd.DataFrame({
-#     "Variable": X_train.columns,
-#     "VIF": [variance_inflation_factor(X_train.values, i)
-#             for i in range(X_train.shape[1])]
-# })
-# 
-# print(
-#     vif_data.sort_values("VIF", ascending=False)
-# )
+vif_data = pd.DataFrame({
+    "Variable": X_train.columns,
+    "VIF": [variance_inflation_factor(X_train.values, i)
+            for i in range(X_train.shape[1])]
+})
+ 
+print(
+    vif_data.sort_values("VIF", ascending=False)
+)
 
 pdf = train_df.to_pandas()
 pdf["log_price"] = np.log(pdf["sellingprice"])

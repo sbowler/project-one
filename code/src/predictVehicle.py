@@ -146,6 +146,7 @@ if __name__ == "__main__":
         print(f"Predicted Median Value (naive):  ${results['predicted_median_price']:,.2f}")
         print(f"Predicted Expected Value (mean): ${results['predicted_expected_price']:,.2f}")
         print(f"Predicted for sale in: {results['processed_inputs']['clean_state'].upper()}")
+        print(f"Trade-in offer for 10-15% profit: ${results['predicted_expected_price'] * 0.85:,.2f} to ${results['predicted_expected_price'] * 0.90:,.2f}")
         print("====================================\n")
         
     except Exception as e:
