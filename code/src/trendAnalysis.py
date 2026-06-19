@@ -182,7 +182,7 @@ vif_data = pd.DataFrame({
     "Variable": X_train.columns,
     "VIF": [variance_inflation_factor(X_train.values, i)
             for i in range(X_train.shape[1])]
-})
+}) 
 
 print(
     vif_data.sort_values("VIF", ascending=False)
