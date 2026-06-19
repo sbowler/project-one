@@ -8,6 +8,7 @@ import os
 import pickle
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 from dataCleanup import cleanup_data
+from sklearn.model_selection import train_test_split
 
 raw_data = pl.read_csv('../../data/kaggle_car_prices.csv')
 
@@ -61,28 +62,36 @@ features = [
     # "mmr", # We need to remove mmr as it's already an estimate for the price of the vehicle
     # "make", # make is captured in model since a model like z3 is only for BMW
     "model",
-    "state",  # Added state to predict price variations by location
+    "state_grouped",  # Added state to predict price variations by location
     # "body", # Body tends to be captured by the model as well
     # "transmission", # insignificant
     # "color", # color is not statistically significant and mostly just added noise
 ]
 
-train_df = df.filter(pl.col("state") == "ut")
-test_df  = df.filter(pl.col("state") == "ms")
+# Convert to pandas
+pdf = df.to_pandas()
 
-# Train on a random sample of the entire dataset to capture all states
-# train_df = df.sample(n=50000, seed=42)
-# test_df = df.filter(~pl.col("vin").is_in(train_df["vin"])).sample(n=5000, seed=42)
+# Take a stratified sample of 5000 rows
+sample_pdf, _ = train_test_split(
+    pdf,
+    train_size=5000,
+    random_state=42,
+    stratify=pdf["state"]
+)
 
-train_pd = train_df.to_pandas()
-test_pd = test_df.to_pandas()
+# Split sampled data into train/test
+train_pdf, test_pdf = train_test_split(
+    sample_pdf,
+    test_size=0.2,
+    random_state=42
+)
 
 # Tricky, some models are very rare and add a lot of extra variables to look at. With so few items it may start to memorize the data as well,
 # so we will combine rare models together, while preserving the make still so like BMW_Other.
-threshold = 10
+threshold = 20
 
 model_counts = (
-    train_pd.groupby(['make', 'model'])
+    train_pdf.groupby(['make', 'model'])
              .size()
              .reset_index(name='count')
 )
@@ -99,16 +108,28 @@ def collapse_model(row):
     return row['model']
   return f"{row['make']}_Other"
 
-train_pd['model'] = train_pd.apply(collapse_model, axis=1)
-test_pd['model'] = test_pd.apply(collapse_model, axis=1)
+train_pdf['model'] = train_pdf.apply(collapse_model, axis=1)
+test_pdf['model'] = test_pdf.apply(collapse_model, axis=1)
+
+# Group states that don't have very many observations as well.
+state_threshold = 30
+
+state_counts = train_pdf["state"].value_counts()
+kept_states = state_counts[state_counts >= state_threshold].index
+
+def group_state(x):
+    return x if x in kept_states else "Other"
+
+train_pdf["state_grouped"] = train_pdf["state"].apply(group_state)
+test_pdf["state_grouped"] = test_pdf["state"].apply(group_state)
 
 X_train = pd.get_dummies(
-    train_pd[features],
+    train_pdf[features],
     drop_first=True
 )
 
 X_test = pd.get_dummies(
-    test_pd[features],
+    test_pdf[features],
     drop_first=True
 )
 
@@ -120,7 +141,7 @@ X_test = X_test.reindex(
 X_train = sm.add_constant(X_train)
 X_test = sm.add_constant(X_test)
 
-y_train = np.log(train_pd["sellingprice"])
+y_train = np.log(train_pdf["sellingprice"])
 
 X_train = X_train.astype(float)
 X_test = X_test.astype(float)
@@ -136,7 +157,7 @@ fit_log = sm.OLS(y_train, X_train).fit()
 
 print(fit_log.summary())
 
-y_test = np.log(test_pd["sellingprice"])
+y_test = np.log(test_pdf["sellingprice"])
 
 y_test = y_test.astype(float)
 
@@ -144,6 +165,7 @@ predictions = fit_log.predict(X_test)
 
 residuals = y_test - predictions
 
+plt.figure(figsize=(10, 6))
 plt.scatter(predictions, residuals)
 plt.axhline(0)
 plt.xlabel("Fitted Values")
@@ -160,19 +182,18 @@ vif_data = pd.DataFrame({
     "Variable": X_train.columns,
     "VIF": [variance_inflation_factor(X_train.values, i)
             for i in range(X_train.shape[1])]
-})
- 
+}) 
+
 print(
     vif_data.sort_values("VIF", ascending=False)
 )
 
-pdf = train_df.to_pandas()
-pdf["log_price"] = np.log(pdf["sellingprice"])
+train_pdf["log_price"] = np.log(train_pdf["sellingprice"])
 
 plt.figure(figsize=(10, 6))
 
 sns.regplot(
-    data=pdf,
+    data=train_pdf,
     x="vehicle_age",
     y="log_price",
     scatter_kws={"alpha": 0.15},
@@ -188,7 +209,7 @@ plt.savefig('ageVsSellingPrice.png')
 plt.figure(figsize=(10, 6))
 
 sns.regplot(
-    data=pdf,
+    data=train_pdf,
     x="odometer_10k",
     y="log_price",
     scatter_kws={"alpha": 0.15},
@@ -217,15 +238,28 @@ df_03 = df_02.filter(
 )
 
 # Plotting the confidence interval
-df = df_03
-plt.figure(figsize=(16, 9))
-plt.errorbar(df['coef'], df['term'],
-    xerr=[df['coef'] - df['conf_low'], df['conf_high'] - df['coef']], 
-    fmt='o', 
-    capsize=5, 
-    label='Estimates')
-plt.axvline(0, color='red', linestyle='--', label='y=0')
-plt.savefig('KnownModelsEffects.png')
+dfm = (
+    df_03
+    .sort('coef')
+)
+
+n = len(dfm)
+
+plt.figure(figsize=(12, max(12, n * 0.25)))
+plt.errorbar(
+    dfm['coef'],
+    dfm['term'],
+    xerr=[dfm['coef'] - dfm['conf_low'], dfm['conf_high'] - dfm['coef']],
+    fmt='o',
+    capsize=2,
+    markersize=3,
+    elinewidth=1
+)
+plt.axvline(0, color='red', linestyle='--')
+plt.gca().invert_yaxis()
+plt.yticks(fontsize=8)
+plt.subplots_adjust(left=0.35)
+plt.savefig('KnownModelsEffects.png', bbox_inches='tight', dpi=300)
 
 df_04 = df_02.filter(
     pl.col('term').str.contains('model'),
@@ -234,7 +268,7 @@ df_04 = df_02.filter(
 
 # Plotting the confidence interval
 df = df_04
-plt.figure(figsize=(18, 8))
+plt.figure(figsize=(18, 9))
 plt.errorbar(df['coef'], df['term'],
     xerr=[df['coef'] - df['conf_low'], df['conf_high'] - df['coef']], 
     fmt='o', 
@@ -243,11 +277,12 @@ plt.errorbar(df['coef'], df['term'],
 plt.axvline(0, color='red', linestyle='--', label='y=0')
 plt.savefig('OtherModelEffects.png')
 
-df_03 = df_02.filter(~pl.col('term').str.contains('model'))
+df_03 = df_02.filter(~pl.col('term').str.contains('model'),
+                     ~pl.col('term').str.contains('state'))
 
 # Plotting the confidence interval
 df = df_03
-plt.figure(figsize=(9, 3))
+plt.figure(figsize=(10, 3))
 plt.errorbar(df['coef'], df['term'],
     xerr=[df['coef'] - df['conf_low'], df['conf_high'] - df['coef']], 
     fmt='o', 
