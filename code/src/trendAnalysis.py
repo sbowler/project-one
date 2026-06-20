@@ -148,11 +148,6 @@ X_test = X_test.astype(float)
 
 y_train = y_train.astype(float)
 
-
-print(X_train.dtypes)
-
-print(X_train.dtypes.value_counts())
-
 fit_log = sm.OLS(y_train, X_train).fit()
 
 print(fit_log.summary())

@@ -1,6 +1,6 @@
 ---
-title: "Project 1 Report"
-author: 
+title: "Project 1 Report: Used Vehicle Price Prediction"
+author:
   - name: "Stacy Bowler"
     affiliation: "Utah State University"
     email: "stacy.bowler@sdl.usu.edu"
@@ -8,14 +8,20 @@ author:
     affiliation: "Utah State University"
     email: "derrik.miller@sdl.usu.edu"
 date: "June 19, 2026"
-abstract: | 
-  Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
+abstract: |
+  This project develops a multiple linear regression model to estimate used vehicle
+  selling prices from vehicle characteristics, condition, mileage, model, and geographic
+  location. The resulting model explains approximately 82% of the variation in observed
+  selling prices and provides a framework for supporting vehicle acquisition, pricing,
+  and inventory decisions.
 keywords:
-  - "Keyword 1"
-  - "Keyword 2"
+  - Regression
+  - Used Vehicles
+  - Predictive Analytics
+  - Vehicle Valuation
 bibliography: references.bib
-format: 
-  jasa-pdf: 
+format:
+  jasa-pdf:
     keep-tex: true
     cite-method: natbib
     journal:
@@ -24,47 +30,606 @@ execute:
   echo: false
 ---
 
-```{python}
-#| label: setup
-#| warning: false
-#| message: false
+# Introduction
 
-import os
-import polars as pl
-import seaborn.objects as so
-```
+The objective of this project is to develop a predictive model capable of estimating the market value of used vehicles. Accurate vehicle valuation supports pricing decisions for dealerships, fleet operators, auction participants, and vehicle purchasing organizations.
+
+The business decision addressed by this analysis is:
+
+> Given a used vehicle's characteristics, what selling price should be expected in the current market?
+
+The resulting model can be used to identify vehicles that appear underpriced or overpriced relative to market expectations.
+
+## Business Objective
+
+The primary objective is to minimize pricing error between predicted and observed vehicle sale prices.
+
+A practical loss function for this problem is Mean Squared Error (MSE):
+
+$$
+MSE=\frac{1}{n}\sum_{i=1}^{n}(y_i-\hat{y_i})^2
+$$
+
+where:
+
+* $y_i$ is the observed selling price
+* $\hat{y_i}$ is the predicted selling price
+
+Lower prediction error improves decision quality by reducing the likelihood of overpaying for inventory or undervaluing vehicles during resale.
 
 ## Plan {#sec-plan}
 
-We can can include regular single-paper citations using `[@citation]` like [@Allenby:1998] or multiple-paper citations using `[@citation; @citation]` like [@Allenby:1998; @Watanabe:2010], in-line citations using `@citation` like @Allenby:1998, or citations without the Author using `[-@citation]` like [-@Allenby:1998].
+The analysis follows the regression modeling workflow:
 
-Additionally, each section and sub-section can be referenced by adding a `{#sec-label}` label to any heading and referencing `@sec-label`. For example, `## Introduction {#sec-intro}` would be referenced as `@sec-intro` like @sec-intro (note that the `seg-` prefix is required).
+1. Define the business problem.
+2. Acquire and clean vehicle sales data.
+3. Explore relationships between candidate predictors and selling price.
+4. Build an interpretable regression model.
+5. Evaluate assumptions and model fit.
+6. Generate predictions and business recommendations.
 
-## Build {#sec-Build}
+The ideal dataset would contain:
 
-We can include math using LaTeX within the `$` or `$$` syntax. For example, `$y = \beta x + \epsilon$` produces $y = \beta x + \epsilon$ and
-$$
-Pr(y_{n,h}=p|\beta_n) = \frac{\exp{(x_{p,h}'\beta_n)}}{\sum_{p=1}^P\exp{(x_{p,h}'\beta_n)}}
-$$ {#eq-mnl}
+* Vehicle age
+* Odometer reading
+* Mechanical condition
+* Original MSRP
+* Vehicle trim level
+* Accident history
+* Maintenance history
+* Regional market conditions
+* Vehicle Make/Model
+* Sell price
 
-\noindent is produced using the `$$` syntax. The equation has to be labeled with `{#eq-label}` directly following the closing `$$` so it can be referenced with `@eq-label`. For example, the above equation `{#eq-mnl}` would be referenced as `@eq-mnl` like @eq-mnl (note that the `eq-` prefix is required).
+Several of these variables were unavailable. Vehicle model and state were therefore used as proxy variables for differences in vehicle desirability and regional pricing effects.
+
+## Build {#sec-build}
+
+### Data Source
+
+The dataset was obtained from the Kaggle used vehicle auction dataset used throughout this project.
+
+Variables initially available included:
+
+* Year
+* Make
+* Model
+* Transmission
+* State
+* Condition
+* Odometer
+* Selling price
+
+### Data Cleaning
+
+The following preprocessing steps were performed:
+
+* Removed records with missing values in critical fields.
+* Calculated vehicle age from model year.
+* Converted odometer values into units of 10,000 miles.
+* Standardized categorical values.
+* Grouped low-frequency vehicle models into manufacturer-specific "Other" categories.
+* Grouped low-frequency states into broader state categories.
+* Created dummy variables for categorical predictors.
+
+```{python}
+import pandas as pd
+import polars as pl
+import seaborn as sns
+import matplotlib.pyplot as plt
+import numpy as np
+import statsmodels.api as sm
+import os
+import pickle
+from statsmodels.stats.outliers_influence import variance_inflation_factor
+from sklearn.model_selection import train_test_split
+
+raw_data = pl.read_csv('./data/kaggle_car_prices.csv')
+
+make_map = {
+  "vw": "volkswagen",
+  "mercedes": "mercedes-benz",
+  "mercedes-b": "mercedes-benz",
+  "landrover": "land rover",
+  "ford truck": "ford",
+  "ford tk": "ford",
+  "chev truck": "chevrolet",
+  "gmc truck": "gmc",
+  "mazda tk": "mazda",
+  "dodge tk": "dodge",
+  "hyundai tk": "hyundai",
+}
+
+body_map = {
+  "regular-cab": "regular cab",
+
+  "supercrew": "crew cab",
+  "supercab": "extended cab",
+  "crewmax cab": "crew cab",
+  "double cab": "crew cab",
+
+  "access cab": "extended cab",
+  "club cab": "extended cab",
+  "king cab": "extended cab",
+  "xtracab": "extended cab",
+
+  "cab plus": "extended cab",
+  "cab plus 4": "extended cab",
+
+  "e-series van": "van",
+  "promaster cargo van": "van",
+  "transit van": "van",
+  "ram van": "van",
+
+  "g sedan": "sedan",
+  "g coupe": "coupe",
+  "g convertible": "convertible",
+
+  "genesis coupe": "coupe",
+  "elantra coupe": "coupe",
+  "q60 coupe": "coupe",
+  "g37 coupe": "coupe",
+  "cts coupe": "coupe",
+  "cts-v coupe": "coupe",
+
+  "beetle convertible": "convertible",
+  "q60 convertible": "convertible",
+  "g37 convertible": "convertible",
+  "granturismo convertible": "convertible",
+  "granturismo convertible": "convertible",
+
+  "cts wagon": "wagon",
+  "cts-v wagon": "wagon",
+  "tsx sport wagon": "wagon",
+}
+
+pl.Config.set_tbl_rows(-1)
+pl.Config.set_tbl_cols(-1)
+pl.Config.set_fmt_str_lengths(100)
+
+# Drop missing values in key columns
+df = raw_data.drop_nulls(subset=['make', 'body', 'color', 'condition', 'year', 'saledate', 'sellingprice', 'state', 'transmission'])
+
+# make, body, transmission, state, color need to be consistent and valid
+
+# Clean 'make' column
+df = df.with_columns(
+  pl.col("make")
+  .str.strip_chars()
+  .str.to_lowercase()
+)
+
+df = df.with_columns(
+  pl.col("make")
+  .replace(make_map)
+)
+
+# Clean up body
+df = df.with_columns(
+  pl.col("body")
+    .str.strip_chars()
+    .str.to_lowercase()
+)
+
+df = df.with_columns(
+  pl.col("body").replace(body_map)
+)
+
+# Clean up transmission, convert any not automatic/manual to null and then drop them
+df = df.with_columns(
+  pl.when(
+    ~pl.col("transmission")
+      .str.to_lowercase()
+      .is_in(["automatic", "manual"])
+  )
+  .then(None)
+  .otherwise(pl.col("transmission").str.to_lowercase())
+  .alias("transmission")
+)
+
+df = df.drop_nulls(subset=["transmission"])
+
+# CLean up color
+df = df.with_columns(
+  pl.when(pl.col("color") == "—")
+    .then(pl.lit("unknown"))
+    .otherwise(pl.col("color"))
+    .alias("color")
+)
+
+# Extract 'sale_year' from 'saledate'
+df = df.with_columns(
+  sale_year=pl.col('saledate').str.extract(r'(\d{4})').cast(pl.Int64, strict=False)
+)
+
+# Calculate vehicle age: sale_year - year
+df = df.with_columns(
+  vehicle_age=pl.col('sale_year') - pl.col('year')
+)
+
+# Filter out invalid ages and extreme odometers
+df = df.filter(pl.col('vehicle_age') >= 0)
+df = df.filter(pl.col('odometer') < 250000)
+df = df.with_columns(
+    (pl.col("odometer") / 10000).alias("odometer_10k")
+)
+
+y = df["sellingprice"]
+
+features = [
+    "vehicle_age",
+    "odometer_10k",
+    "condition",
+    # "mmr", # We need to remove mmr as it's already an estimate for the price of the vehicle
+    # "make", # make is captured in model since a model like z3 is only for BMW
+    "model",
+    "state_grouped",  # Added state to predict price variations by location
+    # "body", # Body tends to be captured by the model as well
+    # "transmission", # insignificant
+    # "color", # color is not statistically significant and mostly just added noise
+]
+
+# Convert to pandas
+pdf = df.to_pandas()
+
+# Take a stratified sample of 5000 rows
+sample_pdf, _ = train_test_split(
+    pdf,
+    train_size=5000,
+    random_state=42,
+    stratify=pdf["state"]
+)
+
+# Split sampled data into train/test
+train_pdf, test_pdf = train_test_split(
+    sample_pdf,
+    test_size=0.2,
+    random_state=42
+)
+
+# Tricky, some models are very rare and add a lot of extra variables to look at. With so few items it may start to memorize the data as well,
+# so we will combine rare models together, while preserving the make still so like BMW_Other.
+threshold = 20
+
+model_counts = (
+    train_pdf.groupby(['make', 'model'])
+             .size()
+             .reset_index(name='count')
+)
+
+common_models = set(
+    zip(
+        model_counts.loc[model_counts['count'] >= threshold, 'make'],
+        model_counts.loc[model_counts['count'] >= threshold, 'model']
+    )
+)
+
+def collapse_model(row):
+  if (row['make'], row['model']) in common_models:
+    return row['model']
+  return f"{row['make']}_Other"
+
+train_pdf['model'] = train_pdf.apply(collapse_model, axis=1)
+test_pdf['model'] = test_pdf.apply(collapse_model, axis=1)
+
+# Group states that don't have very many observations as well.
+state_threshold = 30
+
+state_counts = train_pdf["state"].value_counts()
+kept_states = state_counts[state_counts >= state_threshold].index
+
+def group_state(x):
+    return x if x in kept_states else "Other"
+
+train_pdf["state_grouped"] = train_pdf["state"].apply(group_state)
+test_pdf["state_grouped"] = test_pdf["state"].apply(group_state)
+
+X_train = pd.get_dummies(
+    train_pdf[features],
+    drop_first=True
+)
+
+X_test = pd.get_dummies(
+    test_pdf[features],
+    drop_first=True
+)
+
+X_test = X_test.reindex(
+    columns=X_train.columns,
+    fill_value=0
+)
+
+X_train = sm.add_constant(X_train)
+X_test = sm.add_constant(X_test)
+
+y_train = np.log(train_pdf["sellingprice"])
+
+X_train = X_train.astype(float)
+X_test = X_test.astype(float)
+
+y_train = y_train.astype(float)
+```
+
+### Sampling Strategy
+
+A stratified sampling approach was used to preserve state representation while reducing dataset size to 5000 for modeling.
+
+Training and testing partitions were generated after sampling to maintain representative geographic distributions.
 
 ## Explore {#sec-explore}
 
-Using Quarto means we can use Markdown, Python, and LaTeX (along with other languages) interchangeably.
+### Exploratory Data Analysis
 
-We can include tables and figures. If Markdown `![]()` syntax is used to include figures, the label would be `{#fig-slug}` and the figure would be referenced with `@fig-slug` (note that the `fig-` prefix is required).
+Initial visualizations focused on the relationships between selling price and major numerical predictors.
+
+```{python}
+# Setup a 1x3 grid for the 3 plots
+fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+fig.suptitle('Automobile Sales Trend Analysis', fontsize=16)
+
+# Plot 1: Most common makes being sold (Top 15)
+top_makes = df['make'].value_counts().sort('count', descending=True).head(15).to_pandas()
+sns.barplot(data=top_makes, y='make', x='count', hue='make', legend=False, ax=axes[0], palette='magma')
+axes[0].set_title('Top 15 Most Common Makes Sold')
+axes[0].set_xlabel('Number of Vehicles Sold')
+axes[0].set_ylabel('Make')
+
+# Plot 2: Most common years of vehicle sold
+common_years = df['year'].value_counts().sort('count', descending=True).head(20).sort('year').to_pandas()
+sns.barplot(data=common_years, x='year', y='count', hue='year', legend=False, ax=axes[1], palette='crest')
+axes[1].set_title('Most Common Vehicle Years Sold (Top 20)')
+axes[1].set_xlabel('Vehicle Year')
+axes[1].set_ylabel('Number of Vehicles Sold')
+axes[1].tick_params(axis='x', rotation=45)
+
+# Plot 3: Comparison of vehicle age to selling price
+age_price = df.group_by('vehicle_age').agg(
+    pl.col('sellingprice').mean().alias('mean_price')
+).sort('vehicle_age')
+# Filter to a reasonable age range to avoid outliers skewing the plot
+age_price = age_price.filter(pl.col('vehicle_age') <= 30).to_pandas()
+
+sns.lineplot(data=age_price, x='vehicle_age', y='mean_price', ax=axes[2], marker='o', color='b')
+axes[2].set_title('Average Selling Price by Vehicle Age')
+axes[2].set_xlabel('Vehicle Age (Years)')
+axes[2].set_ylabel('Average Selling Price ($)')
+
+plt.tight_layout()
+
+train_pdf["log_price"] = np.log(train_pdf["sellingprice"])
+```
+
+* A log transformation was applied to the selling price.
+
+### Vehicle Age vs Selling Price
+
+Vehicle age showed a strong negative relationship with price. Older vehicles generally sold for substantially less than newer vehicles.
+
+```{python}
+plt.figure(figsize=(10, 6))
+
+sns.regplot(
+    data=train_pdf,
+    x="vehicle_age",
+    y="log_price",
+    scatter_kws={"alpha": 0.15},
+    line_kws={"linewidth": 3}
+)
+
+plt.title("Vehicle Age vs Selling Price")
+plt.xlabel("Vehicle Age (Years)")
+plt.ylabel("Selling Price (log $)")
+plt.tight_layout()
+```
+
+### Odometer vs Selling Price
+
+Vehicles with higher mileage generally sold for lower prices. The relationship was weaker than vehicle age but remained statistically significant.
+
+```{python}
+plt.figure(figsize=(10, 6))
+
+sns.regplot(
+    data=train_pdf,
+    x="odometer_10k",
+    y="log_price",
+    scatter_kws={"alpha": 0.15},
+    line_kws={"linewidth": 3}
+)
+
+plt.title("odometer (10k) vs Selling Price")
+plt.xlabel("odometer (10k) Reading")
+plt.ylabel("Selling Price (log $)")
+plt.tight_layout()
+```
+
+### Key Findings
+
+* Vehicle age exhibits the strongest continuous predictor effect.
+* Mileage has a meaningful negative effect on vehicle value.
+* Vehicle model accounts for substantial differences in selling price.
+* Trucks and heavy-duty pickups tend to command premium prices.
+* Geographic location contributes measurable price variation.
 
 ## Reconcile {#sec-reconcile}
 
-Our tables and figures can be dynamically generated.
+### Assumptions
+
+Multiple linear regression requires:
+
+* Linear relationships
+* Independent observations
+* Constant variance
+* Approximately normal residuals
+* Limited multicollinearity
+
+### Model Refinements
+
+Several iterations of the model were evaluated.
+
+Adjustments included:
+
+* Consolidating sparse model categories.
+* Grouping low-frequency states.
+* Transforming odometer readings to improve interpretability.
+* Evaluating Variance Inflation Factors (VIFs).
+
+These modifications reduced model complexity while preserving predictive performance.
+
+```{python}
+fit_log = sm.OLS(y_train, X_train).fit()
+
+y_test = np.log(test_pdf["sellingprice"])
+
+y_test = y_test.astype(float)
+
+predictions = fit_log.predict(X_test)
+
+residuals = y_test - predictions
+
+vif_data = pd.DataFrame({
+    "Variable": X_train.columns,
+    "VIF": [variance_inflation_factor(X_train.values, i)
+            for i in range(X_train.shape[1])]
+}) 
+
+print(
+    vif_data.sort_values("VIF", ascending=False)
+)
+```
+Our original VIF showed high values with mmr, make, and body. Mmr is a market estimate for the worth of the vehicle so it made sense that predictor overpowered all of the other predictors. Likewise, it's a pretty safe assumption that the vehicle model was already capturing the make and body. For example a vehicle model of 'Ram 1500' only refers to a dodge truck so the model can easily deduce that data from the vehicle model so including those in the model was redundant.
+
+Our current model shows no VIF values above or close to 10 so there appear to be no concerns there.
+
+```{python}
+plt.figure(figsize=(10, 6))
+plt.scatter(predictions, residuals)
+plt.axhline(0)
+plt.xlabel("Fitted Values")
+plt.ylabel("Residuals")
+plt.title("Residuals vs Fitted")
+```
+This graph shows a decent cloud not indicating any concerns.
+
+```{python}
+sm.qqplot(residuals, line='45')
+
+plt.title("Q-Q Plot")
+```
+Our QQ plot is not great, but we already applied a log transform so there's not much more that can be done. This QQ plot shape is not uncommon with sales data and some of the shape may be accounted for that we have vehicle model and state predictors that are categorical rather than linear and are a significant part of the model.
 
 ## Fit {#sec-fit}
 
-One final note. While the bibliography will be placed automatically at the end of the paper, we may have a few additional citations like R packages and other software to include that aren't explicitly cited elsewhere that we can include using the LaTeX syntax `\nocite{author:year, author:year}` (since we are using `natbib` for citations) as is demonstrated in the following bibliography.
+### Final Model
 
-\nocite{bayesm:2018, loo:2018}
+The final model included:
+
+* Vehicle age
+* Odometer (10,000-mile units)
+* Condition score
+* Vehicle model
+* State group
+
+```{python}
+print(fit_log.summary())
+```
+The fitted model produced:
+
+* R² = 0.818
+* Adjusted R² = 0.812
+* F-statistic = 141.6
+* p < 0.001
+
+indicating strong overall explanatory power.
+
+### Important Continuous Predictors
+
+| Variable | Coefficient |
+|-----------|------------:|
+| Vehicle Age | -0.1279 |
+| Odometer (10k miles) | -0.0508 |
+| Condition | 0.0073 |
+
+Because the dependent variable is log-transformed, coefficients can be approximately interpreted as percentage changes.
+
+#### Vehicle Age
+
+Each additional year reduces expected selling price by approximately:
+
+$$
+100(e^{-0.1279}-1) \approx -12.0\%
+$$
+
+#### Odometer
+
+Each additional 10,000 miles reduces expected selling price by approximately:
+
+$$
+100(e^{-0.0508}-1) \approx -5.0\%
+$$
+
+#### Condition
+
+Each one-point increase in condition increases expected selling price by approximately:
+
+$$
+100(e^{0.0073}-1) \approx 0.7\%
+$$
 
 ## Evaluate {#sec-evaluate}
 
+### Residual Analysis
+
+Residual diagnostics indicated:
+
+* No severe violations of linearity.
+* Acceptable residual symmetry.
+* Some heavy tails remain.
+* No extreme multicollinearity concerns.
+
+The largest VIF values were associated with popular truck categories but remained below commonly cited thresholds requiring corrective action.
+
+### Limitations
+
+Several limitations should be noted:
+
+* No MSRP information was available.
+* Trim level information was not incorporated.
+* Accident history was unavailable.
+* Maintenance records were unavailable.
+* Auction data may not represent all vehicle markets.
+
+These limitations likely explain a portion of the unexplained variance.
+
 ## Predict {#sec-predict}
+
+### Business Implications
+
+The model suggests:
+
+1. Vehicle age is the strongest continuous driver of depreciation.
+2. Mileage has a significant but smaller effect.
+3. Vehicle model contributes substantial value differences.
+4. Trucks generally retain value better than passenger sedans.
+
+### Recommendations
+
+Organizations purchasing used vehicles should:
+
+* Prioritize lower-age vehicles when possible.
+* Consider mileage alongside age rather than in isolation.
+* Use model-specific adjustments when evaluating value.
+* Compare observed asking prices against model predictions to identify unusually favorable purchasing opportunities.
+
+### Future Work
+
+Future improvements could include:
+
+1. Incorporating original MSRP.
+2. Including trim-level information.
+3. Adding accident-history variables.
+4. Incorporating local economic indicators.
+
+## Conclusion
+
+The final regression model explains approximately 82% of the variation in used vehicle selling prices and provides a practical framework for vehicle valuation. Vehicle age, mileage, model, and geographic location all contribute significantly to price determination. The resulting model can support data-driven purchasing and pricing decisions while highlighting areas for future model enhancement.
