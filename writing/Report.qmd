@@ -81,19 +81,26 @@ The ideal dataset would contain:
 * Vehicle Make/Model
 * Sell price
 
-Several of these variables were unavailable. Vehicle model and state were therefore used as proxy variables for differences in vehicle desirability and regional pricing effects.
+Several of these variables were unavailable. Vehicle model and state were therefore used as proxy variables for differences in vehicle desirability and regional pricing effects. Vehicle make, age, and sell price should also act as a proxy for original MSRP.
+
+The sales data was limited to 34 states. However, some states like Alaska had few observations.
 
 ## Build {#sec-build}
 
 ### Data Source
 
-The dataset was obtained from the Kaggle used vehicle auction dataset used throughout this project.
+The dataset was obtained from Kaggle at https://www.kaggle.com/code/bavlyyoussef/vehicle-sales/input and contains used vehicle transaction information. It's unclear how this data was collected or where it came from exactly.
 
 Variables initially available included:
 
 * Year
+* Body
+* Color
 * Make
 * Model
+* MMR
+* VIN
+* Seller
 * Transmission
 * State
 * Condition
@@ -280,7 +287,7 @@ sample_pdf, _ = train_test_split(
     stratify=pdf["state"]
 )
 
-# Split sampled data into train/test
+# Split sampled data into train/test 80/20% using a standard random sample
 train_pdf, test_pdf = train_test_split(
     sample_pdf,
     test_size=0.2,
@@ -352,9 +359,9 @@ y_train = y_train.astype(float)
 
 ### Sampling Strategy
 
-A stratified sampling approach was used to preserve state representation while reducing dataset size to 5000 for modeling.
+A stratified sampling approach was used to preserve state representation while reducing dataset size to 5000 for modeling performance.
 
-Training and testing partitions were generated after sampling to maintain representative geographic distributions.
+Training and testing partitions were generated after sampling to maintain representative geographic distributions. A standard random sample was used to split off 20% of the data for testing.
 
 ## Explore {#sec-explore}
 
@@ -497,9 +504,9 @@ print(
     vif_data.sort_values("VIF", ascending=False)
 )
 ```
-Our original VIF showed high values with mmr, make, and body. Mmr is a market estimate for the worth of the vehicle so it made sense that predictor overpowered all of the other predictors. Likewise, it's a pretty safe assumption that the vehicle model was already capturing the make and body. For example a vehicle model of 'Ram 1500' only refers to a dodge truck so the model can easily deduce that data from the vehicle model so including those in the model was redundant.
+Our original VIF showed high values with mmr, make, and body. Mmr is a market estimate for the worth of the vehicle so it made sense that predictor overpowered all of the other predictors. Likewise, it's a pretty safe assumption that the vehicle model was already capturing the make and body. For example a vehicle model of 'Ram 1500' only could refer to a dodge truck so the model can easily deduce that data from the vehicle model. Therefore including those in the model was redundant.
 
-Our current model shows no VIF values above or close to 10 so there appear to be no concerns there.
+Our current model shows no VIF values above or close to 10 so there appear to be no concerns there. 
 
 ```{python}
 plt.figure(figsize=(10, 6))
@@ -509,14 +516,18 @@ plt.xlabel("Fitted Values")
 plt.ylabel("Residuals")
 plt.title("Residuals vs Fitted")
 ```
-This graph shows a decent cloud not indicating any concerns.
+Residuals remained approximately centered around zero with some evidence of heavy tails among high-value vehicles.
 
 ```{python}
 sm.qqplot(residuals, line='45')
 
 plt.title("Q-Q Plot")
 ```
-Our QQ plot is not great, but we already applied a log transform so there's not much more that can be done. This QQ plot shape is not uncommon with sales data and some of the shape may be accounted for that we have vehicle model and state predictors that are categorical rather than linear and are a significant part of the model.
+The Q-Q plot indicates that the residuals are not perfectly normally distributed. Rather than following the reference line, the residuals exhibit a noticeable S-shaped pattern, particularly in the tails. This suggests departures from the normality assumption and indicates that the distribution of errors is more concentrated around the mean than would be expected under a normal distribution.
+
+Some departure from normality is expected in used vehicle sales data due to heterogeneous vehicle types, regional market differences, and the presence of categorical predictors such as vehicle model and state. While the log transformation of selling price improved the residual distribution substantially, the normality assumption is not fully satisfied.
+
+Despite these deviations, the large sample size (n = 4,000) and the primary objective of prediction rather than inference make the model reasonably robust to moderate violations of residual normality. The residuals remain centered around zero, and other diagnostics did not indicate severe model deficiencies.
 
 ## Fit {#sec-fit}
 
