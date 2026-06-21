@@ -614,6 +614,137 @@ These limitations likely explain a portion of the unexplained variance.
 
 ## Predict {#sec-predict}
 
+```{python}
+examples = [
+    {"make": "Ram", "model": "1500", "vehicle_age": 7.0, "odometer": 115000.0, "condition": 30.0, "state": "ut"},
+    {"make": "Toyota", "model": "Camry", "vehicle_age": 3.0, "odometer": 42000.0, "condition": 35.0, "state": "tx"},
+    {"make": "Chevrolet", "model": "Silverado 2500", "vehicle_age": 2.0, "odometer": 18000.0, "condition": 45.0, "state": "co"},
+    {"make": "Honda", "model": "Civic", "vehicle_age": 10.0, "odometer": 120000.0, "condition": 25.0, "state": "ny"}
+]
+
+def predict_vehicle_price(make: str, model: str, vehicle_age: float, odometer: float, condition: float, state: str, output_dir: str = "../../output"):
+
+    # 1. Load model and metadata
+    output_dir = "../../output"
+    model_path = os.path.join(output_dir, 'car_price_model.pkl')
+    metadata_path = os.path.join(output_dir, 'model_metadata.pkl')
+    
+    if not os.path.exists(model_path) or not os.path.exists(metadata_path):
+        raise FileNotFoundError(
+            f"Model or metadata not found in {output_dir}. Please run trendAnalysis.py first to train and save the model."
+        )
+        
+    fit_log = sm.load(model_path)
+    with open(metadata_path, 'rb') as f:
+        metadata = pickle.load(f)
+        
+    common_models = metadata['common_models']
+    train_columns = metadata['train_columns']
+    residual_variance = metadata['residual_variance']
+    
+    # 2. Preprocess input parameters
+    clean_make = str(make).strip().lower()
+    clean_make = make_map.get(clean_make, clean_make)
+    
+    # Perform case-insensitive lookup against common_models
+    model_lookup = { (m_make, m_model.lower()): m_model for m_make, m_model in common_models }
+    clean_model_lower = str(model).strip().lower()
+    
+    # Map to canonical model name if it's common, otherwise collapse to make_Other
+    if (clean_make, clean_model_lower) in model_lookup:
+        collapsed_model = model_lookup[(clean_make, clean_model_lower)]
+    else:
+        collapsed_model = f"{clean_make}_Other"
+        
+    # Scale odometer to 10k miles units
+    odometer_10k = odometer / 10000.0
+    
+    # Canonicalize state (lowercase, strip)
+    clean_state = str(state).strip().lower()
+    
+    # 3. Construct the single-row DataFrame for encoding
+    input_df = pd.DataFrame([{
+        'vehicle_age': float(vehicle_age),
+        'odometer_10k': float(odometer_10k),
+        'condition': float(condition),
+        'model': collapsed_model,
+        'state': clean_state
+    }])
+    
+    # One-hot encode the categorical columns
+    input_encoded = pd.get_dummies(input_df, columns=['model', 'state'])
+    
+    # 4. Align with training columns (fill missing columns with 0, drop extra columns)
+    X_new = input_encoded.reindex(columns=train_columns, fill_value=0)
+    
+    # Set the statsmodels constant term to 1.0
+    if 'const' in X_new.columns:
+        X_new['const'] = 1.0
+        
+    # Ensure columns are floats
+    X_new = X_new.astype(float)
+    
+    # 5. Predict log selling price
+    predicted_log_price = fit_log.predict(X_new)[0]
+    
+    # 6. Revert log transformation
+    # Naive exponentiation yields the median prediction (since E[log(Y)] matches the median for log-normal)
+    predicted_median_price = np.exp(predicted_log_price)
+    
+    # Correcting for log-normal expectation bias yields the mean (expected value) prediction:
+    # E[Y] = exp(mu + sigma^2 / 2)
+    predicted_mean_price = np.exp(predicted_log_price + (residual_variance / 2.0))
+    
+    return {
+        "raw_inputs": {
+            "make": make,
+            "model": model,
+            "vehicle_age": vehicle_age,
+            "odometer": odometer,
+            "condition": condition,
+            "state": state
+        },
+        "processed_inputs": {
+            "canonical_make": clean_make,
+            "collapsed_model": collapsed_model,
+            "odometer_10k": odometer_10k,
+            "clean_state": clean_state
+        },
+        "predicted_log_price": predicted_log_price,
+        "predicted_median_price": predicted_median_price,
+        "predicted_expected_price": predicted_mean_price
+    }
+
+results = []
+for ex in examples:
+    pred = predict_vehicle_price(
+        make=ex["make"],
+        model=ex["model"],
+        vehicle_age=ex["vehicle_age"],
+        odometer=ex["odometer"],
+        condition=ex["condition"],
+        state=ex["state"],
+        output_dir="output"  # Points to project-one/output relative to root
+    )
+    
+    results.append({
+        "Vehicle": f"{ex['make']} {ex['model']}",
+        "Age (Yrs)": ex["vehicle_age"],
+        "Odometer": f"{ex['odometer']:,}",
+        "Condition": ex["condition"],
+        "State": ex["state"].upper(),
+        "Predicted Log Price": round(pred["predicted_log_price"], 4),
+        "Predicted Price (Mean)": f"${pred['predicted_expected_price']:,.2f}",
+        "Trade-In Range (85-90%)": f"${pred['predicted_expected_price'] * 0.85:,.2f} - ${pred['predicted_expected_price'] * 0.90:,.2f}"
+    })
+
+df_results = pd.DataFrame(results)
+from IPython.display import Markdown
+Markdown(df_results.to_markdown(index=False))
+```
+
+Based off of the given results, we do see that the model does give more value to vehicles in better condition and those that are newer. I'm slightly surprised that it gives more value to certain models over others but it does make sense considering that certain models are more sought after than others. It does indicate that trucks retain more value over sedans. These predictions seem reasonable and can be used to inform purchasing decisions.
+
 ### Business Implications
 
 The model suggests:
