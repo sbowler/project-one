@@ -19,15 +19,7 @@ keywords:
   - Used Vehicles
   - Predictive Analytics
   - Vehicle Valuation
-bibliography: references.bib
-format:
-  jasa-pdf:
-    keep-tex: true
-    cite-method: natbib
-    journal:
-      blinded: false
-execute:
-  echo: false
+format: typst
 ---
 
 # Introduction
@@ -500,9 +492,7 @@ vif_data = pd.DataFrame({
             for i in range(X_train.shape[1])]
 }) 
 
-print(
-    vif_data.sort_values("VIF", ascending=False)
-)
+vif_data.sort_values("VIF", ascending=False)
 ```
 Our original VIF showed high values with mmr, make, and body. Mmr is a market estimate for the worth of the vehicle so it made sense that predictor overpowered all of the other predictors. Likewise, it's a pretty safe assumption that the vehicle model was already capturing the make and body. For example a vehicle model of 'Ram 1500' only could refer to a dodge truck so the model can easily deduce that data from the vehicle model. Therefore including those in the model was redundant.
 
@@ -520,7 +510,6 @@ Residuals remained approximately centered around zero with some evidence of heav
 
 ```{python}
 sm.qqplot(residuals, line='45')
-
 plt.title("Q-Q Plot")
 ```
 The Q-Q plot indicates that the residuals are not perfectly normally distributed. Rather than following the reference line, the residuals exhibit a noticeable S-shaped pattern, particularly in the tails. This suggests departures from the normality assumption and indicates that the distribution of errors is more concentrated around the mean than would be expected under a normal distribution.
@@ -542,7 +531,7 @@ The final model included:
 * State group
 
 ```{python}
-print(fit_log.summary())
+fit_log.summary()
 ```
 The fitted model produced:
 
@@ -618,14 +607,14 @@ These limitations likely explain a portion of the unexplained variance.
 examples = [
     {"make": "Ram", "model": "1500", "vehicle_age": 7.0, "odometer": 115000.0, "condition": 30.0, "state": "ut"},
     {"make": "Toyota", "model": "Camry", "vehicle_age": 3.0, "odometer": 42000.0, "condition": 35.0, "state": "tx"},
-    {"make": "Chevrolet", "model": "Silverado 2500", "vehicle_age": 2.0, "odometer": 18000.0, "condition": 45.0, "state": "co"},
+    {"make": "Chevrolet", "model": "2500", "vehicle_age": 2.0, "odometer": 18000.0, "condition": 45.0, "state": "co"},
     {"make": "Honda", "model": "Civic", "vehicle_age": 10.0, "odometer": 120000.0, "condition": 25.0, "state": "ny"}
 ]
 
-def predict_vehicle_price(make: str, model: str, vehicle_age: float, odometer: float, condition: float, state: str, output_dir: str = "../../output"):
+def predict_vehicle_price(make: str, model: str, vehicle_age: float, odometer: float, condition: float, state: str, output_dir: str = "./output"):
 
     # 1. Load model and metadata
-    output_dir = "../../output"
+    output_dir = "./output"
     model_path = os.path.join(output_dir, 'car_price_model.pkl')
     metadata_path = os.path.join(output_dir, 'model_metadata.pkl')
     
@@ -733,14 +722,13 @@ for ex in examples:
         "Odometer": f"{ex['odometer']:,}",
         "Condition": ex["condition"],
         "State": ex["state"].upper(),
-        "Predicted Log Price": round(pred["predicted_log_price"], 4),
-        "Predicted Price (Mean)": f"${pred['predicted_expected_price']:,.2f}",
-        "Trade-In Range (85-90%)": f"${pred['predicted_expected_price'] * 0.85:,.2f} - ${pred['predicted_expected_price'] * 0.90:,.2f}"
+        "Predicted Price": f"${pred['predicted_expected_price']:,.2f}",
+        "Trade-In (85-90%)": f"${pred['predicted_expected_price'] * 0.85:,.2f} - ${pred['predicted_expected_price'] * 0.90:,.2f}"
     })
 
 df_results = pd.DataFrame(results)
-from IPython.display import Markdown
-Markdown(df_results.to_markdown(index=False))
+from IPython.display import HTML
+HTML(df_results.to_html(index=False))
 ```
 
 Based off of the given results, we do see that the model does give more value to vehicles in better condition and those that are newer. I'm slightly surprised that it gives more value to certain models over others but it does make sense considering that certain models are more sought after than others. It does indicate that trucks retain more value over sedans. These predictions seem reasonable and can be used to inform purchasing decisions.
