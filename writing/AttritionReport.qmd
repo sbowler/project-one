@@ -1,0 +1,332 @@
+---
+title: "Project 2 Report: Employee Attrition"
+author:
+  - name: "Stacy Bowler"
+    affiliation: "Utah State University"
+    email: "stacy.bowler@sdl.usu.edu"
+  - name: "Derrik Miller"
+    affiliation: "Utah State University"
+    email: "derrik.miller@sdl.usu.edu"
+date: "August 7, 2026"
+abstract: |
+  This project develops a blank.
+keywords:
+  - Regression
+  - Employee Attrition
+format: typst
+---
+
+# Introduction
+
+The objective of this project is to develop a predictive model capable of determining which employees are most likely to leave. This can allow the business to focus their retention efforts on high-risk employees. 
+
+The business decision addressed by this analysis is:
+
+> Which employees are likely to leave?
+
+The resulting model can be used to identify employees that appear likely to leave.
+
+## Business Objective
+
+The primary objective is to accurately determine which employees are likely to quit before they do.
+
+A practical loss function for this problem is Mean Squared Error (MSE):
+
+$$
+MSE=\frac{1}{n}\sum_{i=1}^{n}(y_i-\hat{y_i})^2
+$$
+
+where:
+
+* $y_i$ is the observed selling price
+* $\hat{y_i}$ is the predicted selling price
+
+Lower prediction error improves decision quality by reducing the likelihood of overpaying for inventory or undervaluing vehicles during resale.
+
+## Plan {#sec-plan}
+
+The analysis follows the regression modeling workflow:
+
+1. Define the business problem.
+2. Acquire and clean vehicle sales data.
+3. Explore relationships between candidate predictors and selling price.
+4. Build an interpretable regression model.
+5. Evaluate assumptions and model fit.
+6. Generate predictions and business recommendations.
+
+The ideal dataset would contain:
+
+* Age
+* Salary
+* Years at the company
+* Overtime
+* Job role
+* Job satisfication score
+
+Several of these variables were unavailable. Vehicle model and state were therefore used as proxy variables for differences in vehicle desirability and regional pricing effects. Vehicle make, age, and sell price should also act as a proxy for original MSRP.
+
+## Build {#sec-build}
+
+### Data Source
+
+The dataset was obtained from Kaggle at https://www.kaggle.com/code/mpwolke/employee-attrition and contains used vehicle transaction information. It's unclear how this data was collected or where it came from exactly.
+
+Variables initially available included:
+
+* Year
+* Body
+* Color
+
+### Data Cleaning
+
+The following preprocessing steps were performed:
+
+* Removed records with missing values in critical fields.
+* Standardized categorical values.
+* Grouped low-frequency ...
+* Created dummy variables for categorical predictors.
+
+```{python}
+import pandas as pd
+import polars as pl
+import seaborn as sns
+import matplotlib.pyplot as plt
+import numpy as np
+import statsmodels.api as sm
+import os
+import pickle
+from statsmodels.stats.outliers_influence import variance_inflation_factor
+from sklearn.model_selection import train_test_split
+
+raw_data = pl.read_csv('./data/kaggle_car_prices.csv')
+
+pl.Config.set_tbl_rows(-1)
+pl.Config.set_tbl_cols(-1)
+pl.Config.set_fmt_str_lengths(100)
+
+# Drop missing values in key columns
+df = raw_data.drop_nulls(subset=['make', 'body', 'color', 'condition', 'year', 'saledate', 'sellingprice', 'state', 'transmission'])
+
+features = [
+    "vehicle_age",
+    "odometer_10k",
+    "condition",
+    # "mmr", # We need to remove mmr as it's already an estimate for the price of the vehicle
+    # "make", # make is captured in model since a model like z3 is only for BMW
+    "model",
+    "state_grouped",  # Added state to predict price variations by location
+    # "body", # Body tends to be captured by the model as well
+    # "transmission", # insignificant
+    # "color", # color is not statistically significant and mostly just added noise
+]
+
+```
+
+### Sampling Strategy
+
+A stratified sampling approach was used to preserve state representation while reducing dataset size to 5000 for modeling performance.
+
+Training and testing partitions were generated after sampling to maintain representative geographic distributions. A standard random sample was used to split off 20% of the data for testing.
+
+## Explore {#sec-explore}
+
+### Exploratory Data Analysis
+
+Initial visualizations focused on the relationships between selling price and major numerical predictors.
+
+```{python}
+
+
+# train_pdf["log_price"] = np.log(train_pdf["sellingprice"])
+```
+
+### Blank1 vs Blah2
+
+blah blah
+
+```{python}
+
+```
+
+### blank vs Blah
+
+blah blah is shown
+
+```{python}
+
+```
+
+### Key Findings
+
+* Found this.
+* Found that.
+
+## Reconcile {#sec-reconcile}
+
+### Assumptions
+
+### Model Refinements
+
+Several iterations of the model were evaluated.
+
+Adjustments included:
+
+* abcd
+* GDs.
+* Evaluating Variance Inflation Factors (VIFs).
+
+
+```{python}
+# fit_log = sm.OLS(y_train, X_train).fit()
+
+# y_test = np.log(test_pdf["sellingprice"])
+
+# y_test = y_test.astype(float)
+
+# predictions = fit_log.predict(X_test)
+
+# residuals = y_test - predictions
+
+# vif_data = pd.DataFrame({
+#     "Variable": X_train.columns,
+#     "VIF": [variance_inflation_factor(X_train.values, i)
+#             for i in range(X_train.shape[1])]
+# }) 
+
+# vif_data.sort_values("VIF", ascending=False)
+```
+
+```{python}
+plt.figure(figsize=(10, 6))
+plt.scatter(predictions, residuals)
+plt.axhline(0)
+plt.xlabel("Fitted Values")
+plt.ylabel("Residuals")
+plt.title("Residuals vs Fitted")
+```
+
+
+```{python}
+sm.qqplot(residuals, line='45')
+plt.title("Q-Q Plot")
+```
+
+## Fit {#sec-fit}
+
+### Final Model
+
+The final model included:
+
+* Param 1
+* Param 2
+
+```{python}
+# fit_log.summary()
+```
+The fitted model produced:
+
+* R² = 0.818
+* Adjusted R² = 0.812
+* F-statistic = 141.6
+* p < 0.001
+
+indicating strong overall explanatory power.
+
+### Important Continuous Predictors
+
+| Variable | Coefficient |
+|-----------|------------:|
+| Vehicle Age | -0.1279 |
+| Odometer (10k miles) | -0.0508 |
+| Condition | 0.0073 |
+
+Because the dependent variable is log-transformed, coefficients can be approximately interpreted as percentage changes.
+
+#### Vehicle Age
+
+Each additional year reduces expected selling price by approximately:
+
+$$
+100(e^{-0.1279}-1) \approx -12.0\%
+$$
+
+#### Odometer
+
+Each additional 10,000 miles reduces expected selling price by approximately:
+
+$$
+100(e^{-0.0508}-1) \approx -5.0\%
+$$
+
+#### Condition
+
+Each one-point increase in condition increases expected selling price by approximately:
+
+$$
+100(e^{0.0073}-1) \approx 0.7\%
+$$
+
+## Evaluate {#sec-evaluate}
+
+### Residual Analysis
+
+Residual diagnostics indicated:
+
+* No severe violations of linearity.
+* Acceptable residual symmetry.
+* Some heavy tails remain.
+* No extreme multicollinearity concerns.
+
+The largest VIF values were associated with popular truck categories but remained below commonly cited thresholds requiring corrective action.
+
+### Limitations
+
+Several limitations should be noted:
+
+* No MSRP information was available.
+* Trim level information was not incorporated.
+* Accident history was unavailable.
+* Maintenance records were unavailable.
+* Auction data may not represent all vehicle markets.
+
+These limitations likely explain a portion of the unexplained variance.
+
+## Predict {#sec-predict}
+
+```{python}
+
+
+```
+
+Based off of the given results, we do see that the model does give more value to vehicles in better condition and those that are newer. I'm slightly surprised that it gives more value to certain models over others but it does make sense considering that certain models are more sought after than others. It does indicate that trucks retain more value over sedans. These predictions seem reasonable and can be used to inform purchasing decisions.
+
+### Business Implications
+
+The model suggests:
+
+1. Vehicle age is the strongest continuous driver of depreciation.
+2. Mileage has a significant but smaller effect.
+3. Vehicle model contributes substantial value differences.
+4. Trucks generally retain value better than passenger sedans.
+
+### Recommendations
+
+Organizations purchasing used vehicles should:
+
+* Prioritize lower-age vehicles when possible.
+* Consider mileage alongside age rather than in isolation.
+* Use model-specific adjustments when evaluating value.
+* Compare observed asking prices against model predictions to identify unusually favorable purchasing opportunities.
+
+### Future Work
+
+Future improvements could include:
+
+1. Incorporating original MSRP.
+2. Including trim-level information.
+3. Adding accident-history variables.
+4. Incorporating local economic indicators.
+
+## Conclusion
+
+The final regression model explains approximately 82% of the variation in used vehicle selling prices and provides a practical framework for vehicle valuation. Vehicle age, mileage, model, and geographic location all contribute significantly to price determination. The resulting model can support data-driven purchasing and pricing decisions while highlighting areas for future model enhancement.
