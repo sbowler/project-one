@@ -30,26 +30,31 @@ The resulting model can be used to identify employees that appear likely to leav
 
 The primary objective is to accurately determine which employees are likely to quit before they do.
 
-A practical loss function for this problem is Mean Squared Error (MSE):
+A practical utility function for this problem is:
 
 $$
-MSE=\frac{1}{n}\sum_{i=1}^{n}(y_i-\hat{y_i})^2
+U =
+\begin{cases}
+0.60 \times 40000 - 8000 = 16000 & \text{if a retention intervention is provided and prevents attrition} \\
+-8000 & \text{if a retention intervention is provided unnecessarily} \\
+-40000 & \text{if no intervention is provided and the employee leaves} \\
+0 & \text{if no intervention is provided and the employee stays}
+\end{cases}
 $$
 
-where:
+assumptions:
 
-* $y_i$ is the observed selling price
-* $\hat{y_i}$ is the predicted selling price
-
-Lower prediction error improves decision quality by reducing the likelihood of overpaying for inventory or undervaluing vehicles during resale.
+* Cost of employee turnover: $40,000
+* Cost of retention intervention: $8,000
+* Retention intervention success rate: 60%
 
 ## Plan {#sec-plan}
 
 The analysis follows the regression modeling workflow:
 
 1. Define the business problem.
-2. Acquire and clean vehicle sales data.
-3. Explore relationships between candidate predictors and selling price.
+2. Acquire and clean employee data.
+3. Explore relationships between candidate predictors and attrition.
 4. Build an interpretable regression model.
 5. Evaluate assumptions and model fit.
 6. Generate predictions and business recommendations.
@@ -57,82 +62,122 @@ The analysis follows the regression modeling workflow:
 The ideal dataset would contain:
 
 * Age
+* Attrition
 * Salary
 * Years at the company
 * Overtime
 * Job role
 * Job satisfication score
 
-Several of these variables were unavailable. Vehicle model and state were therefore used as proxy variables for differences in vehicle desirability and regional pricing effects. Vehicle make, age, and sell price should also act as a proxy for original MSRP.
+Due to the data being fake generated data, it was more than ideal. It included everything we thought of and much more.
 
 ## Build {#sec-build}
 
 ### Data Source
 
-The dataset was obtained from Kaggle at https://www.kaggle.com/code/mpwolke/employee-attrition and contains used vehicle transaction information. It's unclear how this data was collected or where it came from exactly.
+The dataset was obtained from Kaggle at https://www.kaggle.com/datasets/pavansubhasht/ibm-hr-analytics-attrition-dataset and contains a fictional dataset created by IBM data scientists.
 
-Variables initially available included:
+Variables initially available included 35 different point including notably:
 
-* Year
-* Body
-* Color
+* Age
+* Attrition
+* Department
+* Gender
+* Job Role
+* Job Satisfaction
+* Martial Status
+* Monthly Income
+* Number of Companies Worked
+* Overtime
+* Years Since Last Promotion
+* Year at Company
+* Years in Current Role
 
 ### Data Cleaning
 
 The following preprocessing steps were performed:
 
-* Removed records with missing values in critical fields.
-* Standardized categorical values.
-* Grouped low-frequency ...
-* Created dummy variables for categorical predictors.
+* Converted Attrition to a binary outcome where Yes = 1
 
 ```{python}
-import pandas as pd
-import polars as pl
-import seaborn as sns
-import matplotlib.pyplot as plt
-import numpy as np
-import statsmodels.api as sm
 import os
-import pickle
+import numpy as np
+import polars as pl
+import seaborn.objects as so
+import matplotlib.pyplot as plt
+import statsmodels.api as sm
+import statsmodels.formula.api as smf
 from statsmodels.stats.outliers_influence import variance_inflation_factor
-from sklearn.model_selection import train_test_split
-
-raw_data = pl.read_csv('./data/kaggle_car_prices.csv')
 
 pl.Config.set_tbl_rows(-1)
 pl.Config.set_tbl_cols(-1)
 pl.Config.set_fmt_str_lengths(100)
 
+raw_data = (pl.read_csv(os.path.join('data', 'HR-Employee-Attrition.csv'))
+  # Make the outcome binary where 'Yes' = 1
+  .with_columns(
+    pl.when(pl.col('Attrition') == 'Yes').then(1)
+    .when(pl.col('Attrition') == 'No').then(0)
+    .alias('Left')
+  )
+)
+
 # Drop missing values in key columns
-df = raw_data.drop_nulls(subset=['make', 'body', 'color', 'condition', 'year', 'saledate', 'sellingprice', 'state', 'transmission'])
+# df = raw_data.drop_nulls(subset=['make', 'body', 'color', 'condition', 'year', 'saledate', 'sellingprice', 'state', 'transmission'])
+
+# Print unique values and their counts
+# for col in raw_data.columns:
+#   print(f"\n{'='*60}")
+#   print(f"Column: {col}")
+#   print(f"{'='*60}")
+
+#   print(
+#     raw_data
+#     .group_by(col)
+#     .len()
+#     .sort("len", descending=True)
+#   )
 
 features = [
-    "vehicle_age",
-    "odometer_10k",
-    "condition",
-    # "mmr", # We need to remove mmr as it's already an estimate for the price of the vehicle
-    # "make", # make is captured in model since a model like z3 is only for BMW
-    "model",
-    "state_grouped",  # Added state to predict price variations by location
-    # "body", # Body tends to be captured by the model as well
-    # "transmission", # insignificant
-    # "color", # color is not statistically significant and mostly just added noise
+  "Age",
+  "BusinessTravel",
+  "Department",
+  "DistanceFromHome",
+  "EducationField",
+  "Education",
+  "EnvironmentSatisfaction",
+  "Gender",
+  "HourlyRate" # Hourly rate seems to group employees together better than other similar rate columns that tend to only match one or few employees.
+  "JobInvolvement",
+  "JobLevel",
+  "JobRole",
+  "JobSatisfaction",
+  "MaritalStatus",
+  "NumCompaniesWorked",
+  "OverTime",
+  "PercentSalaryHike",
+  "RelationshipSatisfaction",
+  "StockOptionLevel",
+  "TotalWorkingYears", # may correlate strongly with Age
+  "TrainingTimesLastYear",
+  "WorkLifeBalance",
+  "YearsAtCompany",
+  "YearsInCurrentRole",
+  "YearsSinceLastPromotion",
+  "YearsWithCurrManager"
 ]
 
 ```
 
 ### Sampling Strategy
 
-A stratified sampling approach was used to preserve state representation while reducing dataset size to 5000 for modeling performance.
-
-Training and testing partitions were generated after sampling to maintain representative geographic distributions. A standard random sample was used to split off 20% of the data for testing.
+A stratified sampling approach was used to evenly split test and training data with even attrition and non-attrition employees.
 
 ## Explore {#sec-explore}
 
 ### Exploratory Data Analysis
 
-Initial visualizations focused on the relationships between selling price and major numerical predictors.
+Initial visualizations focused on the relationships between attrition and major numerical predictors.
 
 ```{python}
 
@@ -197,18 +242,18 @@ Adjustments included:
 ```
 
 ```{python}
-plt.figure(figsize=(10, 6))
-plt.scatter(predictions, residuals)
-plt.axhline(0)
-plt.xlabel("Fitted Values")
-plt.ylabel("Residuals")
-plt.title("Residuals vs Fitted")
+# plt.figure(figsize=(10, 6))
+# plt.scatter(predictions, residuals)
+# plt.axhline(0)
+# plt.xlabel("Fitted Values")
+# plt.ylabel("Residuals")
+# plt.title("Residuals vs Fitted")
 ```
 
 
 ```{python}
-sm.qqplot(residuals, line='45')
-plt.title("Q-Q Plot")
+# sm.qqplot(residuals, line='45')
+# plt.title("Q-Q Plot")
 ```
 
 ## Fit {#sec-fit}
