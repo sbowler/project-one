@@ -102,62 +102,67 @@ The following preprocessing steps were performed:
 ```{python}
 import os
 import numpy as np
+import pandas as pd
+from patsy import dmatrices
 import polars as pl
 import seaborn.objects as so
+import seaborn as sns
 import matplotlib.pyplot as plt
 import statsmodels.api as sm
 import statsmodels.formula.api as smf
+from sklearn.model_selection import train_test_split
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 
 pl.Config.set_tbl_rows(-1)
 pl.Config.set_tbl_cols(-1)
 pl.Config.set_fmt_str_lengths(100)
 
-raw_data = (pl.read_csv(os.path.join('data', 'HR-Employee-Attrition.csv'))
+employee_data = (pl.read_csv(os.path.join('data', 'HR-Employee-Attrition.csv'))
   # Make the outcome binary where 'Yes' = 1
   .with_columns(
     pl.when(pl.col('Attrition') == 'Yes').then(1)
     .when(pl.col('Attrition') == 'No').then(0)
     .alias('Left')
   )
+  .select(pl.exclude(['EmployeeNumber', 'DailyRate', 'MonthlyIncome', 'EmployeeCount', 'Over18', 'PerformanceRating']))
 )
 
 # Drop missing values in key columns
 # df = raw_data.drop_nulls(subset=['make', 'body', 'color', 'condition', 'year', 'saledate', 'sellingprice', 'state', 'transmission'])
 
 # Print unique values and their counts
-# for col in raw_data.columns:
+# for col in employee_data.columns:
 #   print(f"\n{'='*60}")
 #   print(f"Column: {col}")
 #   print(f"{'='*60}")
 
 #   print(
-#     raw_data
+#     employee_data
 #     .group_by(col)
 #     .len()
 #     .sort("len", descending=True)
 #   )
 
-features = [
+predictors = [
   "Age",
-  "BusinessTravel",
-  "Department",
+  "C(BusinessTravel)",
+  # "C(Department)", # job role perfectly maps to certain departments except manager
   "DistanceFromHome",
-  "EducationField",
-  "Education",
+  "C(EducationField)",
+  "C(Education)",
   "EnvironmentSatisfaction",
-  "Gender",
-  "HourlyRate" # Hourly rate seems to group employees together better than other similar rate columns that tend to only match one or few employees.
+  "C(Gender)",
+  "HourlyRate", # Hourly rate seems to group employees together better than other similar rate columns that tend to only match one or few employees.
   "JobInvolvement",
-  "JobLevel",
-  "JobRole",
+  "C(JobLevel)",
+  "C(JobRole)",
   "JobSatisfaction",
-  "MaritalStatus",
+  "C(MaritalStatus)",
+  "MonthlyRate", # may be more linear and likely redundant with hourly rate
   "NumCompaniesWorked",
-  "OverTime",
+  "C(OverTime)",
   "PercentSalaryHike",
   "RelationshipSatisfaction",
-  "StockOptionLevel",
   "TotalWorkingYears", # may correlate strongly with Age
   "TrainingTimesLastYear",
   "WorkLifeBalance",
@@ -166,12 +171,7 @@ features = [
   "YearsSinceLastPromotion",
   "YearsWithCurrManager"
 ]
-
 ```
-
-### Sampling Strategy
-
-A stratified sampling approach was used to evenly split test and training data with even attrition and non-attrition employees.
 
 ## Explore {#sec-explore}
 
@@ -179,27 +179,133 @@ A stratified sampling approach was used to evenly split test and training data w
 
 Initial visualizations focused on the relationships between attrition and major numerical predictors.
 
-```{python}
-
-
-# train_pdf["log_price"] = np.log(train_pdf["sellingprice"])
-```
-
-### Blank1 vs Blah2
-
-blah blah
+### Overtime vs Attrition
 
 ```{python}
+overtime_rate = (
+    employee_data
+    .group_by("OverTime")
+    .agg(Attrition_Rate=pl.col("Left").mean())
+)
 
+so.Plot(overtime_rate.to_pandas(),
+        x="OverTime",
+        y="Attrition_Rate") \
+    .add(so.Bar())
 ```
 
-### blank vs Blah
+This looks like employees that work overtime are more likely to leave.
 
-blah blah is shown
+### Satisfaction vs Attrition
 
 ```{python}
+(
+    so.Plot(employee_data.to_pandas(),
+            x="JobSatisfaction",
+            y="Left")
+    .add(so.Dot(alpha=.20))
+    .add(so.Line(), so.PolyFit(order=1))
+).show()
+
+(
+    so.Plot(employee_data.to_pandas(),
+            x="EnvironmentSatisfaction",
+            y="Left")
+    .add(so.Dot(alpha=.20))
+    .add(so.Line(), so.PolyFit(order=1))
+).show()
+
+(
+    so.Plot(employee_data.to_pandas(),
+            x="WorkLifeBalance",
+            y="Left")
+    .add(so.Dot(alpha=.20))
+    .add(so.Line(), so.PolyFit(order=1))
+)
 
 ```
+
+These graphs show what we would expect, that as employees report being more satisfied or having better work/life balance, they are less likely to leave.
+
+### Age vs Attrition
+
+```{python}
+(
+    so.Plot(employee_data.to_pandas(),
+            x="Age",
+            y="Left")
+    .add(so.Dot(alpha=.15))
+    .add(so.Line(), so.PolyFit(order=2))
+)
+```
+
+We can see that younger employees are generally more likely to leave, but this starts to reverse around age 45. Retirement is likely a factor, but also employees are likely changing jobs for more senior roles. 
+
+### Commute vs Attrition
+
+```{python}
+(
+    so.Plot(employee_data.to_pandas(),
+            x="DistanceFromHome",
+            y="Left")
+    .add(so.Dot(alpha=.15))
+    .add(so.Line(), so.PolyFit(order=2))
+)
+```
+
+There is a fairly weak correlation between how far someone lives from work and if they are likely to leave. It is interesting that the trend appears to level off so it seems like it's only a factor within a certain range.
+
+### Age vs Total Working Years
+
+```{python}
+(
+    so.Plot(employee_data.to_pandas(),
+            x="Age",
+            y="TotalWorkingYears")
+    .add(so.Dot(alpha=.35))
+    .add(so.Line(), so.PolyFit(order=1))
+)
+```
+
+We thought there would be a strong relationship in the data that could cause issues between employee age and total working years. It looks like there is a relationship, but the correlation is not nearly as strong as we thought.
+
+### Years at Company vs Total Working Years
+
+```{python}
+(
+    so.Plot(employee_data.to_pandas(),
+            x="TotalWorkingYears",
+            y="YearsAtCompany")
+    .add(so.Dot(alpha=.35))
+    .add(so.Line(), so.PolyFit(order=1))
+)
+```
+
+It looks like there is a relationship between years at the company and total working years, but not a very strong one.
+
+### Education Field vs Job Role
+
+```{python}
+rate = (
+    employee_data
+    .group_by(["EducationField", "JobRole"])
+    .agg(attrition_rate=pl.col("Left").mean())
+    .to_pandas()
+)
+pivot_rate = rate.pivot(
+    index="EducationField",
+    columns="JobRole",
+    values="attrition_rate"
+)
+plt.figure(figsize=(12,6))
+sns.heatmap(pivot_rate, cmap="RdYlGn_r", vmin=0, vmax=1)
+plt.title("Attrition Rate by Education Field and Job Role")
+plt.show()
+```
+
+The heatmap reveals a strong structural relationship between education field and job role, indicating that employees are not randomly distributed across roles. Instead, specific education backgrounds concentrate within particular job families. This dependency explains multicollinearity we later observed in the initial logistic regression model.
+
+Attrition varies more meaningfully across job roles than across education fields, suggesting that occupational role is a stronger predictor of turnover than educational background.
 
 ### Key Findings
 
@@ -207,6 +313,10 @@ blah blah is shown
 * Found that.
 
 ## Reconcile {#sec-reconcile}
+
+### Sampling Strategy
+
+A stratified sampling approach was used to evenly split test and training data with even attrition and non-attrition employees.
 
 ### Assumptions
 
@@ -222,39 +332,54 @@ Adjustments included:
 
 
 ```{python}
-# fit_log = sm.OLS(y_train, X_train).fit()
+pb_train = employee_data.to_pandas()
 
-# y_test = np.log(test_pdf["sellingprice"])
+train_df, test_df = train_test_split(
+    pb_train,
+    test_size=0.30,
+    random_state=42,
+    stratify=pb_train["Left"]
+)
 
-# y_test = y_test.astype(float)
+formula = "Left ~ " + " + ".join(predictors)
 
-# predictions = fit_log.predict(X_test)
+fit_01 = smf.logit(
+    formula,
+    data=train_df
+).fit()
 
-# residuals = y_test - predictions
+print(fit_01.summary())
 
-# vif_data = pd.DataFrame({
-#     "Variable": X_train.columns,
-#     "VIF": [variance_inflation_factor(X_train.values, i)
-#             for i in range(X_train.shape[1])]
-# }) 
+# Create the design matrix used by the model
+y, X = dmatrices(formula, data=pb_train, return_type="dataframe")
 
-# vif_data.sort_values("VIF", ascending=False)
+# Calculate VIF
+vif = pd.DataFrame({
+    "Variable": X.columns,
+    "VIF": [variance_inflation_factor(X.values, i) for i in range(X.shape[1])]
+})
+
+print(vif.sort_values("VIF", ascending=False))
 ```
 
-```{python}
-# plt.figure(figsize=(10, 6))
-# plt.scatter(predictions, residuals)
-# plt.axhline(0)
-# plt.xlabel("Fitted Values")
-# plt.ylabel("Residuals")
-# plt.title("Residuals vs Fitted")
-```
+Given the high P values, we should consider removing these from our model
 
+| Variable                   |   p-value |
+| -------------------------- | --------: |
+| Education 2–5              | 0.60–0.94 |
+| HourlyRate                 |     0.656 |
+| PercentSalaryHike          |     0.584 |
+| YearsAtCompany             |     0.704 |
 
-```{python}
-# sm.qqplot(residuals, line='45')
-# plt.title("Q-Q Plot")
-```
+Then these next
+| Variable                   |   p-value |
+| -------------------------- | --------: |
+| JobLevel 3                 |     0.936 |
+| JobLevel 4                 |     0.528 |
+| JobLevel 5                 |     0.466 |
+| JobRole Manager            |     0.846 |
+| JobRole Research Scientist |     0.834 |
+| Manufacturing Director     |     0.441 |
 
 ## Fit {#sec-fit}
 
@@ -281,34 +406,37 @@ indicating strong overall explanatory power.
 
 | Variable | Coefficient |
 |-----------|------------:|
-| Vehicle Age | -0.1279 |
-| Odometer (10k miles) | -0.0508 |
-| Condition | 0.0073 |
+| OverTime | 2.07 |
+| Business Travel | 2.02/1.05 |
+| Marital Status | 1.60 |
 
-Because the dependent variable is log-transformed, coefficients can be approximately interpreted as percentage changes.
+#### OverTime
 
-#### Vehicle Age
-
-Each additional year reduces expected selling price by approximately:
+Employees working overtime have roughly 8 times the odds of attrition compared with employees who do not, holding the other variables constant:
 
 $$
-100(e^{-0.1279}-1) \approx -12.0\%
+e^{2.07} \approx 7.95
 $$
 
-#### Odometer
+#### Business Travel
 
-Each additional 10,000 miles reduces expected selling price by approximately:
-
-$$
-100(e^{-0.0508}-1) \approx -5.0\%
-$$
-
-#### Condition
-
-Each one-point increase in condition increases expected selling price by approximately:
+Employees traveling frequently have roughly 7.5 times the odds of attrition compared to employees who do not travel, holding the other variables constant:
 
 $$
-100(e^{0.0073}-1) \approx 0.7\%
+e^{2.02} \approx 7.5
+$$
+
+Employees traveling rarely also have roughly 2.9 times the odds of attrition compared to employees who do not travel, holding the other variables constant:
+$$
+e^{1.05} \approx 2.9
+$$
+
+#### Marital Status
+
+Single employees have roughly 5 times the odds of attrition compared to divorced employees:
+
+$$
+e^{1.60} \approx 5
 $$
 
 ## Evaluate {#sec-evaluate}
