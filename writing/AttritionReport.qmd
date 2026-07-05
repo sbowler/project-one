@@ -148,7 +148,7 @@ predictors = [
   "C(BusinessTravel)",
   # "C(Department)", # job role perfectly maps to certain departments except manager
   "DistanceFromHome",
-  "C(EducationField)",
+  "C(EducationField)", # This seems to be redundant.
   "C(Education)",
   "EnvironmentSatisfaction",
   "C(Gender)",
@@ -306,6 +306,21 @@ plt.show()
 The heatmap reveals a strong structural relationship between education field and job role, indicating that employees are not randomly distributed across roles. Instead, specific education backgrounds concentrate within particular job families. This dependency explains multicollinearity we later observed in the initial logistic regression model.
 
 Attrition varies more meaningfully across job roles than across education fields, suggesting that occupational role is a stronger predictor of turnover than educational background.
+
+### Number of Companies and Attrition
+
+```{python}
+(
+    so.Plot(employee_data.to_pandas(),
+            x="NumCompaniesWorked",
+            y="Left")
+    .add(so.Dot(alpha=.15), color="YearsAtCompany")
+    .add(so.Line(), so.PolyFit(order=2))
+)
+
+```
+
+This is an interesting graph because it shows that employees that have worked are more companies are more likely to leave. This could be explained by the fact that employees that have worked at more companies are more likely to be looking for new opportunities. It also shows that employees that have been at the company for a long time are less likely to leave, which makes sense.
 
 ### Key Findings
 
