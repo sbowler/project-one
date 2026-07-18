@@ -141,48 +141,6 @@ employee_data = (pl.read_csv(os.path.join('data', 'HR-Employee-Attrition.csv'))
   )
   .select(pl.exclude(['Attrition', 'Department', 'EmployeeNumber', 'DailyRate', 'MonthlyIncome', 'EmployeeCount', 'Over18', 'PerformanceRating']))
 )
-
-# Print unique values and their counts
-# for col in employee_data.columns:
-#   print(f"\n{'='*60}")
-#   print(f"Column: {col}")
-#   print(f"{'='*60}")
-
-#   print(
-#     employee_data
-#     .group_by(col)
-#     .len()
-#     .sort("len", descending=True)
-#   )
-
-predictors = [
-  "Age",
-  "C(BusinessTravel)",
-  # "C(Department)", # job role perfectly maps to certain departments except manager
-  "DistanceFromHome",
-  "C(EducationField)", # This seems to be redundant.
-  "Education",
-  "EnvironmentSatisfaction",
-  "C(Gender)",
-  "HourlyRate", # Hourly rate seems to group employees together better than other similar rate columns that tend to only match one or few employees.
-  "JobInvolvement",
-  "JobLevel",
-  "C(JobRole)",
-  "JobSatisfaction",
-  "C(MaritalStatus)",
-  "MonthlyRate", # may be more linear and likely redundant with hourly rate
-  "NumCompaniesWorked",
-  "C(OverTime)",
-  "PercentSalaryHike",
-  "RelationshipSatisfaction",
-  "TotalWorkingYears", # may correlate strongly with Age
-  "TrainingTimesLastYear",
-  "WorkLifeBalance",
-  "YearsAtCompany",
-  "YearsInCurrentRole",
-  "YearsSinceLastPromotion",
-  "YearsWithCurrManager"
-]
 ```
 
 ## Explore {#sec-explore}
@@ -555,7 +513,53 @@ final_accuracy
 cm = confusion_matrix(y_test, y_pred)
 print(utility(cm))
 
-# formula = "Left ~ " + " + ".join(predictors)
+employee_data = employee_data.rename(columns={
+    "BusinessTravel_Non-Travel": "BusinessTravel_NonTravel",
+    "EducationField_Human Resources": "EducationField_HumanResources",
+    "EducationField_Life Sciences": "EducationField_LifeSciences",
+    "EducationField_Technical Degree": "EducationField_TechnicalDegree",
+    "JobRole_Healthcare Representative": "JobRole_HealthcareRepresentative",
+    "JobRole_Human Resources": "JobRole_HumanResources",
+    "JobRole_Laboratory Technician": "JobRole_LaboratoryTechnician",
+    "JobRole_Manufacturing Director": "JobRole_ManufacturingDirector",
+    "JobRole_Research Director": "JobRole_ResearchDirector",
+    "JobRole_Research Scientist": "JobRole_ResearchScientist",
+    "JobRole_Sales Executive": "JobRole_SalesExecutive",
+    "JobRole_Sales Representative": "JobRole_SalesRepresentative",
+})
+
+predictors = [
+  "Age",
+  "BusinessTravel_NonTravel",
+  "BusinessTravel_Travel_Frequently",
+  "BusinessTravel_Travel_Rarely",
+  # "C(Department)", # job role perfectly maps to certain departments except manager
+  "DistanceFromHome",
+  "EducationField_HumanResources", "EducationField_LifeSciences", "EducationField_Marketing", "EducationField_Medical", "EducationField_Other", "EducationField_TechnicalDegree", # This seems to be redundant.
+  "Education",
+  "EnvironmentSatisfaction",
+  "Gender_Female", 
+  "HourlyRate", # Hourly rate seems to group employees together better than other similar rate columns that tend to only match one or few employees.
+  "JobInvolvement",
+  "JobLevel",
+  "JobRole_HealthcareRepresentative", "JobRole_HumanResources", "JobRole_LaboratoryTechnician", "JobRole_Manager", "JobRole_ManufacturingDirector", "JobRole_ResearchDirector", "JobRole_ResearchScientist", "JobRole_SalesExecutive", "JobRole_SalesRepresentative",
+  "JobSatisfaction",
+  "MaritalStatus_Divorced", "MaritalStatus_Married", "MaritalStatus_Single",
+  "MonthlyRate", # may be more linear and likely redundant with hourly rate
+  "NumCompaniesWorked",
+  "OverTime_Yes",
+  "PercentSalaryHike",
+  "RelationshipSatisfaction",
+  "TotalWorkingYears", # may correlate strongly with Age
+  "TrainingTimesLastYear",
+  "WorkLifeBalance",
+  "YearsAtCompany",
+  "YearsInCurrentRole",
+  "YearsSinceLastPromotion",
+  "YearsWithCurrManager"
+]
+
+formula = "Left ~ " + " + ".join(predictors)
 
 # fit_01 = smf.logit(
 #     formula,
@@ -686,7 +690,142 @@ These limitations likely explain a portion of the unexplained variance.
 
 ```
 
-Based off of the given results, we do see that the model does give more value to vehicles in better condition and those that are newer. I'm slightly surprised that it gives more value to certain models over others but it does make sense considering that certain models are more sought after than others. It does indicate that trucks retain more value over sedans. These predictions seem reasonable and can be used to inform purchasing decisions.
+## Penalized Regression
+```{python}
+import numpy as np
+import pandas as pd
+from patsy import dmatrices
+from sklearn.linear_model import LogisticRegressionCV
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import accuracy_score
+
+# 1. Prepare Design Matrices using the formula
+y, X = dmatrices(formula, data=employee_data, return_type="dataframe")
+# Flatten y to a 1D array for scikit-learn
+y = y.values.ravel()
+
+# Split into train/test using the same indices or exact split structure
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.30, random_state=42, stratify=y
+)
+
+# 2. Scale features (Crucial for regularized models)
+# Note: Intercept column from patsy should not be scaled, or can be dropped 
+# since LogisticRegression adds its own intercept.
+X_train_clean = X_train.drop(columns=['Intercept'], errors='ignore')
+X_test_clean = X_test.drop(columns=['Intercept'], errors='ignore')
+
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train_clean)
+X_test_scaled = scaler.transform(X_test_clean)
+
+# 3. Fit Models with Cross-Validation for Hyperparameter Tuning
+cv_folds = 5
+
+# Ridge Regression (L2)
+ridge_cv = LogisticRegressionCV(l1_ratios=(0,), Cs=10, cv=cv_folds, scoring='neg_log_loss', use_legacy_attributes=True, random_state=42, max_iter=1000)
+ridge_cv.fit(X_train_scaled, y_train)
+
+# LASSO Regression (L1)
+lasso_cv = LogisticRegressionCV(l1_ratios=(1,), solver='saga', Cs=10, cv=cv_folds, scoring='neg_log_loss', use_legacy_attributes=True, random_state=42, max_iter=5000)
+lasso_cv.fit(X_train_scaled, y_train)
+
+# Elastic Net Regression
+elastic_cv = LogisticRegressionCV(l1_ratios=[0.1, 0.5, 0.7, 0.9], solver='saga', Cs=10, cv=cv_folds, scoring='neg_log_loss', use_legacy_attributes=True, random_state=42, max_iter=5000)
+elastic_cv.fit(X_train_scaled, y_train)
+```
+
+Analysis goes here:
+
+### Compare Models
+```{python}
+def find_best_cutoff(y_true, y_probs):
+    cutoffs = np.linspace(0.1, 0.9, 81)
+    best_cutoff = 0.5
+    best_acc = 0
+    for c in cutoffs:
+        acc = accuracy_score(y_true, (y_probs >= c).astype(int))
+        if acc > best_acc:
+            best_acc = acc
+            best_cutoff = c
+    return best_cutoff
+
+models = {'Ridge': ridge_cv, 'LASSO': lasso_cv, 'Elastic Net': elastic_cv}
+results = {}
+
+for name, model in models.items():
+    # Get predicted probabilities
+    train_probs = model.predict_proba(X_train_scaled)[:, 1]
+    test_probs = model.predict_proba(X_test_scaled)[:, 1]
+    
+    # Tune cutoff on train data
+    best_c = find_best_cutoff(y_train, train_probs)
+    
+    # Calculate accuracy on test data using the tuned cutoff
+    test_preds = (test_probs >= best_c).astype(int)
+    test_acc = accuracy_score(y_test, test_preds)
+    
+    results[name] = {'Tuned Cutoff': best_c, 'Test Accuracy': test_acc}
+
+# Display Comparison Table
+print(pd.DataFrame(results).T)
+```
+Analysis goes here:
+
+### Bootstrap Confidence Intervals
+```{python}
+from sklearn.utils import resample
+from sklearn.linear_model import LogisticRegression
+
+# Assuming 'LASSO' or 'Elastic Net' performed best; replace `best_model_class` accordingly
+n_iterations = 1000
+boot_coefs = []
+
+# Filter to your selected optimal model parameter setting for bootstrapping
+best_C = lasso_cv.C_[0] 
+
+for i in range(n_iterations):
+    # Resample training data
+    X_boot, y_boot = resample(X_train_scaled, y_train, random_state=i)
+    
+    # Refit model with the fixed optimal hyperparameter
+    boot_model = LogisticRegression(l1_ratio=0, solver='saga', C=best_C, max_iter=5000)
+    boot_model.fit(X_boot, y_boot)
+    boot_coefs.append(boot_model.coef_.flatten())
+
+boot_coefs = np.array(boot_coefs)
+
+# Calculate 95% Percentile Confidence Intervals
+lower_bounds = np.percentile(boot_coefs, 2.5, axis=0)
+upper_bounds = np.percentile(boot_coefs, 97.5, axis=0)
+
+ci_df = pd.DataFrame({
+    'Feature': X_train_clean.columns,
+    'Optimal_Coef': lasso_cv.coef_.flatten(),
+    '2.5%': lower_bounds,
+    '97.5%': upper_bounds
+})
+print(ci_df)
+```
+
+Analysis goes here:
+
+### Model Comparison using Bayesian Logistic Regression
+```{python}
+import bambi as bmb
+import arviz as az
+
+# Initialize a Bayesian model with a regularizing Normal prior (Ridge equivalent)
+bayes_model = bmb.Model("Left ~ Age + DistanceFromHome + C(OverTime)", data=train_df, family="bernoulli")
+# Fit using MCMC sampling
+results_bayes = bayes_model.fit(draws=1000, tune=1000, random_seed=42)
+
+print(az.summary(results_bayes))
+
+az.plot_trace(results_bayes)
+```
+
+Analysis goes here:
 
 ### Business Implications
 
