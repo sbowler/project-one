@@ -25,4 +25,4 @@ code/src/*
 !code/src/*.stan
 
 /.quarto/
-**/*.quarto_ipynb
+**/*.quarto_ipynb*
