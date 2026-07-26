@@ -9,7 +9,7 @@ author:
     email: "derrik.miller@sdl.usu.edu"
 date: "August 7, 2026"
 abstract: |
-  This project develops a blank.
+   This project develops a predictive employee attrition model using regularized logistic regression. The objective is to identify employees at elevated risk of leaving and determine whether targeted retention interventions provide measurable financial value. Multiple modeling approaches were evaluated using cross-validation, predictive performance metrics, and a business utility function incorporating intervention costs and retention benefits. An Elastic Net logistic regression model was selected based on its balance of predictive accuracy, precision, and expected financial utility. The final model generated positive expected value on held-out test data, demonstrating the potential for data-driven retention strategies.
 keywords:
   - Regression
   - Employee Attrition
@@ -44,15 +44,17 @@ $$
 
 The utility function reflects the incremental financial impact of acting on the model's recommendations. A true positive represents the expected net savings from successfully retaining an employee, while a false positive represents the cost of an unnecessary retention intervention. False negatives and true negatives are assigned zero utility because they represent the baseline outcome in which no intervention occurs.
 
-assumptions:
+The utility function is based on the following assumptions:
 
 * Cost of employee turnover: $40,000
 * Cost of retention intervention: $8,000
 * Retention intervention success rate: 60%
 
+This utility framework prioritizes finding employees where intervention is likely to create value. False positives have a measurable cost because they represent unnecessary retention efforts, while false negatives represent missed opportunities to intervene.
+
 ## Plan {#sec-plan}
 
-The analysis follows the regression modeling workflow:
+The analysis follows the modeling workflow:
 
 1. Define the business problem.
 2. Acquire and clean employee data.
@@ -61,17 +63,17 @@ The analysis follows the regression modeling workflow:
 5. Evaluate assumptions and model fit.
 6. Generate predictions and business recommendations.
 
-The ideal dataset would contain:
+Important predictors expected to influence employee attrition included:
 
 * Age
 * Attrition
-* Salary
+* Compensation
 * Years at the company
-* Overtime
+* Overtime status 
 * Job role
 * Job satisfication score
 
-Due to the data being fake generated data, it was more than ideal. It included everything we thought of and much more.
+The available dataset contained these factors along with additional demographic, job, and employment history variables, providing a broad set of candidate predictors.
 
 ## Build {#sec-build}
 
@@ -79,7 +81,7 @@ Due to the data being fake generated data, it was more than ideal. It included e
 
 The dataset was obtained from Kaggle at https://www.kaggle.com/datasets/pavansubhasht/ibm-hr-analytics-attrition-dataset and contains a fictional dataset created by IBM data scientists.
 
-Variables initially available included 35 different point including notably:
+The dataset initially contained 35 predictors, including:
 
 * Age
 * Attrition
@@ -87,12 +89,12 @@ Variables initially available included 35 different point including notably:
 * Gender
 * Job Role
 * Job Satisfaction
-* Martial Status
+* Marital Status
 * Monthly Income
 * Number of Companies Worked
 * Overtime
 * Years Since Last Promotion
-* Year at Company
+* Years at Company
 * Years in Current Role
 
 ### Data Cleaning
@@ -109,10 +111,7 @@ import pandas as pd
 import seaborn.objects as so
 import seaborn as sns
 import matplotlib.pyplot as plt
-import statsmodels.api as sm
-import statsmodels.formula.api as smf
 
-from patsy import dmatrices
 from sklearn.base import clone
 from sklearn.model_selection import train_test_split, StratifiedKFold
 from sklearn.preprocessing import StandardScaler
@@ -125,8 +124,6 @@ from sklearn.metrics import (
   recall_score,
   roc_auc_score
 )
-from statsmodels.stats.outliers_influence import variance_inflation_factor
-# from sklearn.utils import resample
 
 pl.Config.set_tbl_rows(-1)
 pl.Config.set_tbl_cols(-1)
@@ -139,7 +136,7 @@ employee_data = (pl.read_csv(os.path.join('data', 'HR-Employee-Attrition.csv'))
     .when(pl.col('Attrition') == 'No').then(0)
     .alias('Left')
   )
-  .select(pl.exclude(['Attrition', 'Department', 'EmployeeNumber', 'DailyRate', 'MonthlyIncome', 'EmployeeCount', 'Over18', 'PerformanceRating']))
+  .select(pl.exclude(['Attrition', 'Department', 'EmployeeNumber', 'DailyRate', 'MonthlyIncome', 'EmployeeCount', 'Over18', 'PerformanceRating', 'StandardHours']))
 )
 ```
 
@@ -147,21 +144,33 @@ employee_data = (pl.read_csv(os.path.join('data', 'HR-Employee-Attrition.csv'))
 
 ### Exploratory Data Analysis
 
+```{python}
+(
+  employee_data
+  .group_by("Left")
+  .agg(count=pl.len())
+)
+```
+
+The dataset contains a relatively small proportion of employees who leave, making accuracy alone an insufficient evaluation metric. A model that predicted every employee would stay would achieve high accuracy but provide no business value. Therefore, this analysis prioritizes utility, recall, and precision in addition to accuracy.
+
+### Visualizations
+
 Initial visualizations focused on the relationships between attrition and major numerical predictors.
 
 ### Overtime vs Attrition
 
 ```{python}
 overtime_rate = (
-    employee_data
-    .group_by("OverTime")
-    .agg(Attrition_Rate=pl.col("Left").mean())
+  employee_data
+  .group_by("OverTime")
+  .agg(Attrition_Rate=pl.col("Left").mean())
 )
 
 so.Plot(overtime_rate.to_pandas(),
-        x="OverTime",
-        y="Attrition_Rate") \
-    .add(so.Bar())
+    x="OverTime",
+    y="Attrition_Rate") \
+  .add(so.Bar())
 ```
 
 This looks like employees that work overtime are more likely to leave.
@@ -170,27 +179,27 @@ This looks like employees that work overtime are more likely to leave.
 
 ```{python}
 (
-    so.Plot(employee_data.to_pandas(),
-            x="JobSatisfaction",
-            y="Left")
-    .add(so.Dot(alpha=.20))
-    .add(so.Line(), so.PolyFit(order=1))
+  so.Plot(employee_data.to_pandas(),
+          x="JobSatisfaction",
+          y="Left")
+  .add(so.Dot(alpha=.20))
+  .add(so.Line(), so.PolyFit(order=1))
 ).show()
 
 (
-    so.Plot(employee_data.to_pandas(),
-            x="EnvironmentSatisfaction",
-            y="Left")
-    .add(so.Dot(alpha=.20))
-    .add(so.Line(), so.PolyFit(order=1))
+  so.Plot(employee_data.to_pandas(),
+          x="EnvironmentSatisfaction",
+          y="Left")
+  .add(so.Dot(alpha=.20))
+  .add(so.Line(), so.PolyFit(order=1))
 ).show()
 
 (
-    so.Plot(employee_data.to_pandas(),
-            x="WorkLifeBalance",
-            y="Left")
-    .add(so.Dot(alpha=.20))
-    .add(so.Line(), so.PolyFit(order=1))
+  so.Plot(employee_data.to_pandas(),
+          x="WorkLifeBalance",
+          y="Left")
+  .add(so.Dot(alpha=.20))
+  .add(so.Line(), so.PolyFit(order=1))
 )
 
 ```
@@ -201,11 +210,11 @@ These graphs show what we would expect, that as employees report being more sati
 
 ```{python}
 (
-    so.Plot(employee_data.to_pandas(),
-            x="Age",
-            y="Left")
-    .add(so.Dot(alpha=.15))
-    .add(so.Line(), so.PolyFit(order=2))
+  so.Plot(employee_data.to_pandas(),
+          x="Age",
+          y="Left")
+  .add(so.Dot(alpha=.15))
+  .add(so.Line(), so.PolyFit(order=2))
 )
 ```
 
@@ -215,11 +224,11 @@ We can see that younger employees are generally more likely to leave, but this s
 
 ```{python}
 (
-    so.Plot(employee_data.to_pandas(),
-            x="DistanceFromHome",
-            y="Left")
-    .add(so.Dot(alpha=.15))
-    .add(so.Line(), so.PolyFit(order=2))
+  so.Plot(employee_data.to_pandas(),
+          x="DistanceFromHome",
+          y="Left")
+  .add(so.Dot(alpha=.15))
+  .add(so.Line(), so.PolyFit(order=2))
 )
 ```
 
@@ -229,11 +238,11 @@ There is a fairly weak correlation between how far someone lives from work and i
 
 ```{python}
 (
-    so.Plot(employee_data.to_pandas(),
-            x="Age",
-            y="TotalWorkingYears")
-    .add(so.Dot(alpha=.35))
-    .add(so.Line(), so.PolyFit(order=1))
+  so.Plot(employee_data.to_pandas(),
+          x="Age",
+          y="TotalWorkingYears")
+  .add(so.Dot(alpha=.35))
+  .add(so.Line(), so.PolyFit(order=1))
 )
 ```
 
@@ -243,11 +252,11 @@ We thought there would be a strong relationship in the data that could cause iss
 
 ```{python}
 (
-    so.Plot(employee_data.to_pandas(),
-            x="TotalWorkingYears",
-            y="YearsAtCompany")
-    .add(so.Dot(alpha=.35))
-    .add(so.Line(), so.PolyFit(order=1))
+  so.Plot(employee_data.to_pandas(),
+          x="TotalWorkingYears",
+          y="YearsAtCompany")
+  .add(so.Dot(alpha=.35))
+  .add(so.Line(), so.PolyFit(order=1))
 )
 ```
 
@@ -257,15 +266,15 @@ It looks like there is a relationship between years at the company and total wor
 
 ```{python}
 rate = (
-    employee_data
-    .group_by(["EducationField", "JobRole"])
-    .agg(attrition_rate=pl.col("Left").mean())
-    .to_pandas()
+  employee_data
+  .group_by(["EducationField", "JobRole"])
+  .agg(attrition_rate=pl.col("Left").mean())
+  .to_pandas()
 )
 pivot_rate = rate.pivot(
-    index="EducationField",
-    columns="JobRole",
-    values="attrition_rate"
+  index="EducationField",
+  columns="JobRole",
+  values="attrition_rate"
 )
 plt.figure(figsize=(12,6))
 sns.heatmap(pivot_rate, cmap="RdYlGn_r", vmin=0, vmax=1)
@@ -281,11 +290,11 @@ Attrition varies more meaningfully across job roles than across education fields
 
 ```{python}
 (
-    so.Plot(employee_data.to_pandas(),
-            x="NumCompaniesWorked",
-            y="Left")
-    .add(so.Dot(alpha=.15), color="YearsAtCompany")
-    .add(so.Line(), so.PolyFit(order=2))
+  so.Plot(employee_data.to_pandas(),
+          x="NumCompaniesWorked",
+          y="Left")
+  .add(so.Dot(alpha=.15), color="YearsAtCompany")
+  .add(so.Line(), so.PolyFit(order=2))
 )
 
 ```
@@ -303,17 +312,13 @@ This is an interesting graph because it shows that employees that have worked ar
 
 A stratified sampling approach was used to evenly split test and training data with even attrition and non-attrition employees.
 
-### Assumptions
-
 ### Model Refinements
 
-Several iterations of the model were evaluated.
+Several modeling approaches were evaluated, including Ridge, LASSO, and Elastic Net logistic regression models.
 
-Adjustments included:
+Regularization was selected because the dataset contains correlated predictors, particularly among employee tenure, job role, and satisfaction variables. These relationships can create unstable coefficient estimates in traditional logistic regression models.
 
-* abcd
-* GDs.
-* Evaluating Variance Inflation Factors (VIFs).
+The final modeling approach optimized both predictive performance and business impact. Rather than maximizing accuracy alone, model selection prioritized expected utility because false positive retention interventions create direct costs.
 
 ### Hyper-parameter Tuning
 
@@ -483,7 +488,9 @@ results.sort_values(
 ).head()
 ```
 
-Elastic Net achieved the highest cross-validated business utility (tied with Ridge), the highest overall accuracy, and the highest precision while maintaining an AUC comparable to the other models. Although Ridge produced slightly higher recall, the difference was small. Therefore, Elastic Net was selected as the final model because it provided the best overall balance of predictive performance and business value.
+Elastic Net and Ridge achieved the highest cross-validated business utility, each producing an expected utility of $260,800. Elastic Net was selected as the final model because it achieved comparable utility while providing slightly better accuracy and precision.
+
+Precision was particularly important because false positives represent unnecessary retention interventions costing $8,000 each. The selected model therefore prioritizes identifying employees at meaningful risk while avoiding excessive intervention costs.
 
 The similarity in performance suggests that the employee attrition dataset contains a relatively stable set of predictors with limited multicollinearity. Consequently, the choice of regularization method had only a modest impact on predictive performance. Our removal from the data of some predictors where we saw or predicted multicollinearity may have also contributed.
 
@@ -527,82 +534,131 @@ employee_data = employee_data.rename(columns={
     "JobRole_Sales Executive": "JobRole_SalesExecutive",
     "JobRole_Sales Representative": "JobRole_SalesRepresentative",
 })
-
-predictors = [
-  "Age",
-  "BusinessTravel_NonTravel",
-  "BusinessTravel_Travel_Frequently",
-  "BusinessTravel_Travel_Rarely",
-  # "C(Department)", # job role perfectly maps to certain departments except manager
-  "DistanceFromHome",
-  "EducationField_HumanResources", "EducationField_LifeSciences", "EducationField_Marketing", "EducationField_Medical", "EducationField_Other", "EducationField_TechnicalDegree", # This seems to be redundant.
-  "Education",
-  "EnvironmentSatisfaction",
-  "Gender_Female", 
-  "HourlyRate", # Hourly rate seems to group employees together better than other similar rate columns that tend to only match one or few employees.
-  "JobInvolvement",
-  "JobLevel",
-  "JobRole_HealthcareRepresentative", "JobRole_HumanResources", "JobRole_LaboratoryTechnician", "JobRole_Manager", "JobRole_ManufacturingDirector", "JobRole_ResearchDirector", "JobRole_ResearchScientist", "JobRole_SalesExecutive", "JobRole_SalesRepresentative",
-  "JobSatisfaction",
-  "MaritalStatus_Divorced", "MaritalStatus_Married", "MaritalStatus_Single",
-  "MonthlyRate", # may be more linear and likely redundant with hourly rate
-  "NumCompaniesWorked",
-  "OverTime_Yes",
-  "PercentSalaryHike",
-  "RelationshipSatisfaction",
-  "TotalWorkingYears", # may correlate strongly with Age
-  "TrainingTimesLastYear",
-  "WorkLifeBalance",
-  "YearsAtCompany",
-  "YearsInCurrentRole",
-  "YearsSinceLastPromotion",
-  "YearsWithCurrManager"
-]
-
-formula = "Left ~ " + " + ".join(predictors)
-
-# fit_01 = smf.logit(
-#     formula,
-#     data=X_train
-# ).fit()
-
-# print(fit_01.summary())
-
-# # Create the design matrix used by the model
-# y, X = dmatrices(formula, data=pb_train, return_type="dataframe")
-
-# # Calculate VIF
-# vif = pd.DataFrame({
-#     "Variable": X.columns,
-#     "VIF": [variance_inflation_factor(X.values, i) for i in range(X.shape[1])]
-# })
-
-# print(vif.sort_values("VIF", ascending=False))
 ```
 
-Given the high P values, we should consider removing these from our model
+When evaluated on the held-out test set, the final model produced an expected utility of $232,000. This demonstrates that the model generated positive expected business value on unseen employees rather than only during cross-validation.
 
-| Variable                   |   p-value |
-| -------------------------- | --------: |
-| Education 2–5              | 0.60–0.94 |
-| HourlyRate                 |     0.656 |
-| PercentSalaryHike          |     0.584 |
-| YearsAtCompany             |     0.704 |
+```{python}
+# Confusion matrix with labels
+plt.figure(figsize = (4, 4))
+sns.heatmap(
+    cm, 
+    annot = True, 
+    fmt = ".0f", 
+    square = True, 
+    cmap = 'Blues_r'
+)
+plt.ylabel('Actual Label')
+plt.xlabel('Predicted Label')
+plt.show()
+```
 
-Then these next
+### PCA Analysis
 
-| Variable                   |   p-value |
-| -------------------------- | --------: |
-| JobLevel 3                 |     0.936 |
-| JobLevel 4                 |     0.528 |
-| JobLevel 5                 |     0.466 |
-| JobRole Manager            |     0.846 |
-| JobRole Research Scientist |     0.834 |
-| Manufacturing Director     |     0.441 |
+```{python}
+# Try PCA
+from sklearn.decomposition import PCA
+
+# Split data into train and test
+X_train_nostrat, X_test_nostrat = train_test_split(X, test_size = 0.2, random_state = 42)
+
+# Create a pipeline
+pca_pipe = Pipeline([
+    ('feature_engineering', StandardScaler()),
+    ('pca', PCA(n_components = X_train_nostrat.shape[1])),
+])
+
+# Fit PCA
+pca_fit = pca_pipe.fit(X_train_nostrat)
+
+# Extract explained variance ratio
+pca = pca_fit.named_steps['pca']
+pca_scores = pca.explained_variance_ratio_
+
+# Create scree plot
+sns.lineplot(
+    x = np.arange(1, X_train_nostrat.shape[1] + 1), 
+    y = pca_scores
+)
+plt.xlabel('Number of Principal Components')
+plt.ylabel('Proportion of Variance Explained')
+plt.title('Scree Plot')
+plt.show()
+
+pca_predictors = X.columns
+
+# Extract loadings and rename
+pca_loadings = (pl.DataFrame(pca.components_)
+    .select(['column_0', 'column_1', 'column_2', 'column_3', 'column_4', 'column_5', 'column_6', 'column_7', 'column_8', 'column_9', 'column_10', 'column_11'])
+    .rename({
+        'column_0': 'PC1',
+        'column_1': 'PC2',
+        'column_2': 'PC3',
+        'column_3': 'PC4',
+        'column_4': 'PC5',
+        'column_5': 'PC6',
+        'column_6': 'PC7',
+        'column_7': 'PC8',
+        'column_8': 'PC9',
+        'column_9': 'PC10',
+        'column_10': 'PC11',
+        'column_11': 'PC12',
+    })
+).with_columns(pl.Series('predictors', pca_predictors))
+pca_loadings.select(['predictors', 'PC1']).sort('PC1', descending = True).head(10)
+```
+
+```{python}
+# Sort the loadings for PC2
+pca_loadings.select(['predictors', 'PC2']).sort('PC2', descending = True).head(10)
+```
+
+```{python}
+# Sort the loadings for PC3
+pca_loadings.select(['predictors', 'PC3']).sort('PC3', descending = True).head(10)
+```
+
+```{python}
+# Sort the loadings for PC4
+pca_loadings.select(['predictors', 'PC4']).sort('PC4', descending = True).head(10)
+```
+
+PCA reduced the dimensionality of the dataset, with diminishing variance contributions after approximately 12 components. However, the resulting components did not correspond to clearly interpretable employee characteristics because individual components combined demographic, job, compensation, and tenure variables.
+
+Since Elastic Net logistic regression already addresses correlated predictors while preserving interpretable features, PCA-based modeling was not selected for the final approach.
 
 ## Fit {#sec-fit}
 
 ### Final Model
+
+```{python}
+final_model_full = Pipeline([
+    ("scaler", StandardScaler()),
+    ("classification", LogisticRegression(
+        solver="saga",
+        l1_ratio=0.5,
+        C=final_c,
+        max_iter=5000,
+        random_state=42
+    ))
+])
+
+final_model_full.fit(X, y)
+
+coef_df = (
+  pd.DataFrame({
+    "Predictor": X.columns,
+    "Coefficient": final_model_full.named_steps["classification"].coef_[0]
+  })
+  .assign(
+    Odds_Ratio=lambda x: np.exp(x["Coefficient"])
+  )
+  .sort_values(
+    "Coefficient",
+    ascending=False
+  )
+)
+```
 
 #### Bootstrap Confidence Intervals
 ```{python}
@@ -613,11 +669,9 @@ n_iterations = 1000
 boot_coefs = []
 
 X_train_clean = X_train.drop(columns=['Intercept'], errors='ignore')
-X_test_clean = X_test.drop(columns=['Intercept'], errors='ignore')
 
 scaler = StandardScaler()
 X_train_scaled = scaler.fit_transform(X_train_clean)
-X_test_scaled = scaler.transform(X_test_clean)
 
 for i in range(n_iterations):
     # Resample training data
@@ -643,111 +697,130 @@ ci_df = pd.DataFrame({
 print(ci_df)
 ```
 
-The final model included:
+##### Predictors with stable positive association
 
-* Param 1
-* Param 2
+| Predictor                    | Coefficient |         95% CI |
+| ---------------------------- | ----------: | -------------: |
+| NumCompaniesWorked           |       0.583 | [0.273, 0.676] |
+| YearsSinceLastPromotion      |       0.472 | [0.244, 0.884] |
+| OverTime_Yes                 |       0.451 | [0.332, 0.541] |
+| BusinessTravel_Frequently    |       0.424 | [0.182, 0.549] |
+| JobRole_LaboratoryTechnician |       0.397 | [0.178, 0.613] |
+| DistanceFromHome             |       0.349 | [0.189, 0.576] |
 
-```{python}
-# fit_log.summary()
-```
-The fitted model produced:
+##### Predictors with stable negative association
 
-* R² = 0.818
-* Adjusted R² = 0.812
-* F-statistic = 141.6
-* p < 0.001
+| Predictor               | Coefficient |           95% CI |
+| ----------------------- | ----------: | ---------------: |
+| TotalWorkingYears       |      -0.707 | [-1.012, -0.026] |
+| EnvironmentSatisfaction |      -0.442 | [-0.703, -0.280] |
+| OverTime_No             |      -0.451 | [-0.541, -0.332] |
+| YearsWithCurrManager    |      -0.423 | [-0.756,  0.000] |
+| JobSatisfaction         |      -0.301 | [-0.645, -0.228] |
 
-indicating strong overall explanatory power.
+### Interpretation of Final Model Coefficients
 
-### Important Continuous Predictors
+The final Elastic Net logistic regression model was examined using bootstrap confidence intervals generated from 1,000 resampled training datasets. Predictors with confidence intervals that remained consistently above or below zero were considered more stable contributors to attrition prediction.
 
-| Variable | Coefficient |
-|-----------|------------:|
-| OverTime | 2.07 |
-| Business Travel | 2.02/1.05 |
-| Marital Status | 1.60 |
+The strongest positive predictors were related to employee mobility and work conditions. Employees who frequently traveled for business, worked overtime, had more previous employers, and had longer periods since their last promotion showed increased attrition risk.
 
-#### OverTime
+Conversely, higher job satisfaction, environment satisfaction, job involvement, and total working years were associated with lower attrition risk.
 
-Employees working overtime have roughly 8 times the odds of attrition compared with employees who do not, holding the other variables constant:
+| Predictor                 | Coefficient | 95% Bootstrap Interval |
+| ------------------------- | ----------: | ---------------------: |
+| NumCompaniesWorked        |       0.583 |         (0.273, 0.676) |
+| OverTime_Yes              |       0.451 |         (0.332, 0.541) |
+| BusinessTravel_Frequently |       0.424 |         (0.182, 0.549) |
+| DistanceFromHome          |       0.349 |         (0.189, 0.576) |
+| TotalWorkingYears         |      -0.707 |       (-1.012, -0.026) |
+| EnvironmentSatisfaction   |      -0.442 |       (-0.703, -0.280) |
+| JobSatisfaction           |      -0.301 |       (-0.645, -0.228) |
 
-$$
-e^{2.07} \approx 7.95
-$$
+### Model Diagnostics
 
-#### Business Travel
+Because the final model is a classification model rather than an ordinary least squares regression model, traditional residual assumptions are not applicable. Model quality was evaluated through cross-validation, held-out test performance, ROC-AUC, and business utility.
 
-Employees traveling frequently have roughly 7.5 times the odds of attrition compared to employees who do not travel, holding the other variables constant:
-
-$$
-e^{2.02} \approx 7.5
-$$
-
-Employees traveling rarely also have roughly 2.9 times the odds of attrition compared to employees who do not travel, holding the other variables constant:
-$$
-e^{1.05} \approx 2.9
-$$
-
-#### Marital Status
-
-Single employees have roughly 5 times the odds of attrition compared to divorced employees:
-
-$$
-e^{1.60} \approx 5
-$$
-
-## Evaluate {#sec-evaluate}
-
-### Residual Analysis
-
-Residual diagnostics indicated:
-
-* No severe violations of linearity.
-* Acceptable residual symmetry.
-* Some heavy tails remain.
-* No extreme multicollinearity concerns.
-
-The largest VIF values were associated with popular truck categories but remained below commonly cited thresholds requiring corrective action.
+Potential multicollinearity was addressed through preprocessing decisions and regularization. Elastic Net was appropriate because it reduces the influence of correlated predictors while retaining groups of related variables when they provide predictive value.
 
 ### Limitations
 
-Several limitations should be noted:
+Several limitations should be considered:
 
-* 
+* The dataset is synthetic and may not represent real employee behavior or organizational conditions.
+* The model identifies associations with attrition but does not establish causal relationships.
+* The dataset represents a single organization, so performance may not generalize to other companies.
+* Retention intervention costs and success rates were estimated assumptions rather than measured business outcomes.
 
-These limitations likely explain a portion of the unexplained variance.
+These limitations mean the model should be used as a decision-support tool rather than an automatic decision system.
 
 ## Predict {#sec-predict}
 
+The selected Elastic Net model demonstrated measurable business value on the held-out test set, generating an expected utility of $232,000 under the proposed retention strategy. This indicates that targeting interventions using model predictions provides substantially greater expected value than applying no targeted retention strategy.
+
+The final Elastic Net model was refit using the full dataset after model selection. Because all continuous predictors were standardized prior to fitting, coefficient magnitudes represent the effect of a one-standard-deviation increase in each predictor while holding the remaining variables constant. Larger absolute coefficients therefore indicate predictors with stronger influence on the model.
+
+The bootstrap analysis identified several stable predictors of attrition. Refitting the selected Elastic Net model on the complete dataset produced similar coefficient rankings, providing additional confidence that these relationships are consistent across the data.
+
+The largest positive standardized coefficients in the refit model were:
+
 ```{python}
-
-
+coef_df.head(10)
 ```
 
+The largest positive standardized coefficients were associated with employees who had gone longer since their last promotion, worked for more previous employers, regularly worked overtime, had longer tenure with the company, were single, lived farther from work, or occupied certain job roles. Frequent business travel was also associated with increased attrition risk, although its estimated effect was somewhat smaller than several of these other predictors.
 
+Conversely, several predictors were associated with reduced attrition risk:
 
+```{python}
+coef_df.tail(10)
+```
 
-Analysis goes here:
+These results suggest that employee stability is associated with satisfaction measures and longer-term relationships within the organization.
 
+The most reliable findings are those that both have relatively large standardized coefficients and bootstrap confidence intervals that do not cross zero. These predictors are most consistently associated with employee attrition across repeated samples of the data. These predictors include:
+
+| Predictor                 | Result                                  |
+| ------------------------- | --------------------------------------: |
+| YearsSinceLastPromotion   | strongest positive effect and stable CI |
+| NumCompaniesWorked        | strong positive effect and stable CI    |
+| OverTime                  | strong positive effect and stable CI    |
+| BusinessTravel (Frequent) | moderate positive effect and stable CI  |
+| DistanceFromHome          | moderate positive effect and stable CI  |
+| EnvironmentSatisfaction   | strong negative effect and stable CI    |
+| JobSatisfaction           | negative effect and stable CI           |
+| TotalWorkingYears         | negative effect and stable CI           |
 
 ### Business Implications
 
-The model suggests:
+The strongest findings from the final model were:
 
-1. 
+* Employees working overtime had approximately 53% higher estimated odds of attrition.
+* Employees frequently traveling for business had approximately 39% higher estimated odds of attrition.
+* Lower satisfaction scores were consistently associated with increased attrition risk.
+* Longer periods without promotion were associated with increased attrition risk.
+* Employees with more previous employers showed increased attrition risk.
 
 ### Recommendations
 
+Based on these findings, retention efforts should focus on:
 
-* 
+1. Monitoring employees with sustained overtime requirements.
+2. Reviewing workload and travel expectations for frequently traveling employees.
+3. Providing career development opportunities for employees experiencing stalled progression.
+4. Using satisfaction measures as early indicators of disengagement.
 
 ### Future Work
 
 Future improvements could include:
 
-1. 
+1. Validating the model using real organizational attrition data.
+2. Adding additional employee engagement and compensation variables.
+3. Measuring whether targeted interventions actually reduce attrition after identification.
 
 ## Conclusion
 
-Our conclusion is:
+This project developed a predictive employee attrition model using Elastic Net logistic regression. The final model balanced predictive performance with business value by optimizing an intervention-based utility function rather than accuracy alone.
+
+The selected model achieved a cross-validated utility of $260,800 and generated $232,000 in expected utility on unseen test data. These results indicate that predictive modeling can provide measurable value by helping organizations focus retention resources on employees most likely to leave.
+
+The final Elastic Net model produced positive expected business value while identifying several consistent drivers of attrition. Employees with longer periods since promotion, more previous employers, overtime work, and frequent business travel exhibited higher attrition risk, while higher job satisfaction, environment satisfaction, and greater overall work experience were associated with lower attrition risk. These findings suggest that retention efforts should prioritize employees exhibiting multiple high-risk characteristics rather than relying on any single predictor.
