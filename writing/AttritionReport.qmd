@@ -301,11 +301,6 @@ Attrition varies more meaningfully across job roles than across education fields
 
 This is an interesting graph because it shows that employees that have worked are more companies are more likely to leave. This could be explained by the fact that employees that have worked at more companies are more likely to be looking for new opportunities. It also shows that employees that have been at the company for a long time are less likely to leave, which makes sense.
 
-### Key Findings
-
-* Found this.
-* Found that.
-
 ## Reconcile {#sec-reconcile}
 
 ### Sampling Strategy
@@ -708,6 +703,29 @@ print(ci_df)
 | JobRole_LaboratoryTechnician |       0.397 | [0.178, 0.613] |
 | DistanceFromHome             |       0.349 | [0.189, 0.576] |
 
+```{python}
+ci_df_sorted = ci_df.sort_values("Optimal_Coef", ascending=True)
+
+top_pos_coef = ci_df_sorted.tail(6)
+top_neg_coef = ci_df_sorted.head(6)
+zero_line_df = pd.DataFrame({"x": [0, 0]})
+
+def plot_tie_fighter(df, title):
+    return (
+        so.Plot(df, x="Optimal_Coef", y="Feature", xmin="2.5%", xmax="97.5%")
+        .add(so.Range(linewidth=2, color="blue"))  # Wings (95% CI)
+        .add(so.Dot(color="black"))     # Cockpit (Point Estimate)
+        .add(so.Line(linestyle="--", color="red"), x=zero_line_df['x'])     # Zero Reference Line
+        .label(
+            x="Standardized Coefficient", 
+            y="Predictor",
+            title=title
+        )
+    )
+
+plot_tie_fighter(top_pos_coef, "Top Positive Predictors (95% Bootstrapped CIs)").show()
+```
+
 ##### Predictors with stable negative association
 
 | Predictor               | Coefficient |           95% CI |
@@ -717,6 +735,10 @@ print(ci_df)
 | OverTime_No             |      -0.451 | [-0.541, -0.332] |
 | YearsWithCurrManager    |      -0.423 | [-0.756,  0.000] |
 | JobSatisfaction         |      -0.301 | [-0.645, -0.228] |
+
+```{python}
+plot_tie_fighter(top_neg_coef, "Top Negative Predictors (95% Bootstrapped CIs)").show()
+```
 
 ### Interpretation of Final Model Coefficients
 
