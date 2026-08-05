@@ -653,7 +653,34 @@ coef_df = (
     ascending=False
   )
 )
+
+p_test = final_model_full.predict_proba(X)[:, 1]
+y_pred = (p_test >= final_probability).astype(int)
+
+cm = confusion_matrix(y, y_pred)
+print(utility(cm))
 ```
+
+Running our final model on all the data results in a utility of $1,592,000 based on our assumptions.
+
+#### Confusion Matrix
+
+```{python}
+# Confusion matrix with labels
+plt.figure(figsize = (4, 4))
+sns.heatmap(
+    cm, 
+    annot = True, 
+    fmt = ".0f", 
+    square = True, 
+    cmap = 'Blues_r'
+)
+plt.ylabel('Actual Label')
+plt.xlabel('Predicted Label')
+plt.show()
+```
+
+Using our final model with tuned hyper-parameters on all our data results in similar findings or ratios as when we ran it on our test data. We correctly predicted 131/237 employees would leave. We missed 106 that end up leaving, and we had 63 false positives that did not leave.
 
 #### Bootstrap Confidence Intervals
 ```{python}
@@ -663,6 +690,7 @@ from sklearn.linear_model import LogisticRegression
 n_iterations = 1000
 boot_coefs = []
 
+# Many items like age = 0, hourlyRate = 0, don't make sense so drop the Intercept
 X_train_clean = X_train.drop(columns=['Intercept'], errors='ignore')
 
 scaler = StandardScaler()
@@ -836,13 +864,18 @@ Based on these findings, retention efforts should focus on:
 Future improvements could include:
 
 1. Validating the model using real organizational attrition data.
-2. Adding additional employee engagement and compensation variables.
-3. Measuring whether targeted interventions actually reduce attrition after identification.
+2. Track and add employee hiring cost to the data
+3. Adding additional employee engagement and compensation variables.
+4. Measuring whether targeted interventions actually reduce attrition after identification.
 
 ## Conclusion
 
 This project developed a predictive employee attrition model using Elastic Net logistic regression. The final model balanced predictive performance with business value by optimizing an intervention-based utility function rather than accuracy alone.
 
 The selected model achieved a cross-validated utility of $260,800 and generated $232,000 in expected utility on unseen test data. These results indicate that predictive modeling can provide measurable value by helping organizations focus retention resources on employees most likely to leave.
+
+Using the final model to identify high-risk employees, 194 employees were targeted for a hypothetical retention intervention at a cost of $8,000 per employee, resulting in a total investment of $1.552 million. Of the targeted employees, 131 ultimately left the organization. Assuming the intervention could prevent 60% of these departures, approximately 79 employees would be retained. At an estimated $40,000 cost associated with each employee turnover, this would produce $3.16 million in avoided turnover costs. The resulting net benefit would be approximately $1.61 million, representing a 103.6% net ROI.
+
+The 60% intervention effectiveness and $40,000 turnover cost are assumptions used for the business-case analysis rather than quantities estimated by the logistic regression model.
 
 The final Elastic Net model produced positive expected business value while identifying several consistent drivers of attrition. Employees with longer periods since promotion, more previous employers, overtime work, and frequent business travel exhibited higher attrition risk, while higher job satisfaction, environment satisfaction, and greater overall work experience were associated with lower attrition risk. These findings suggest that retention efforts should prioritize employees exhibiting multiple high-risk characteristics rather than relying on any single predictor.
