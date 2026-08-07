@@ -18,13 +18,13 @@ format: typst
 
 # Introduction
 
-The objective of this project is to develop a predictive model capable of determining which employees are most likely to leave. This can allow the business to focus their retention efforts on high-risk employees. 
+Employee turnover can be very costly due to lost productivity as well as time spent to find, hire, and train a new employee. The objective of this project is to develop a predictive model capable of determining which employees are most likely to leave. This can allow the business to focus their retention efforts on high-risk employees. 
 
 The business decision addressed by this analysis is:
 
-> How much financial value does using this predictive model create compared with not using one?
+> Should we create a retention program for our business and if so, how much value would it create?
 
-The resulting model can be used to identify employees that appear likely to leave.
+The resulting model can be used to identify employees that appear likely to leave, allowing the business to intervene and try to retain them.
 
 ## Business Objective
 
